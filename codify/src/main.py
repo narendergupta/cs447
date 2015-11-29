@@ -1,13 +1,16 @@
 from codify.config.strings import *
 from datamodel import DataModel
+from experimenter import Experimenter
 
 import argparse
 
 
 def main(args):
     dm = DataModel(args.data_file)
-    dm.read_data(to_read_count=3)
-    dm.data[-1].print_trigger_action()
+    dm.read_data(to_read_count=-1)
+    exp = Experimenter(dm)
+    print(len(exp.channels))
+    print(len(exp.funcs))
     return None
 
 

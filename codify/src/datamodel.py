@@ -6,8 +6,9 @@ import csv
 
 class DataModel:
     """Class for reading and managing raw data"""
-    def __init__(self, data_file):
+    def __init__(self, data_file='../data/recipe_parse.tsv', delimiter='\t'):
         self.data_file = data_file
+        self.data_file_delimiter = delimiter
 
 
     def read_data(self, to_read_count=-1):
@@ -15,7 +16,7 @@ class DataModel:
         """Reads data file"""
         read_count = 0
         with open(self.data_file,'r') as data_f:
-            reader = csv.DictReader(data_f, delimiter='\t')
+            reader = csv.DictReader(data_f, delimiter=self.data_file_delimiter)
             for row in reader:
                 read_count += 1
                 try:
