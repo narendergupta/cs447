@@ -9,8 +9,6 @@ def main(args):
     dm = DataModel(args.data_file)
     dm.read_data(to_read_count=-1)
     exp = Experimenter(dm, train_file='../data/train.urls', test_file='../data/test.urls')
-    #print(len(exp.train_urls))
-    #print(len(exp.test_urls))
     return exp
 
 
