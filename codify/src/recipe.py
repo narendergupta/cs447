@@ -7,17 +7,19 @@ class Recipe:
         self.ID = int(ID)
         self.title = title
         self.desc = desc
+        self.desc_vector = None
         self.author = author
         self.featured = True if featured == 'TRUE' else False
         self.uses = int(uses)
         self.favs = int(favs)
         self.code = code
+        self.feats = None       # Features to be extracted later
+        self.trigger_channel, self.trigger_func, self.trigger_params = '', '', ''
+        self.action_channel, self.action_func, self.action_params = '', '', ''
         self.parse_code()
 
 
     def parse_code(self):
-        self.trigger_channel, self.trigger_func, self.trigger_params = '', '', ''
-        self.action_channel, self.action_func, self.action_params = '', '', ''
         code = self.code[6:-1]
         if_then = code.split(' (THEN) ')
         if_str = if_then[0][6:-1]
@@ -39,6 +41,7 @@ class Recipe:
         func = parts[0][1:-1]
         params = parts[1][1:-1]
         return (func, params)
+
 
 
     def print_trigger_action(self):
