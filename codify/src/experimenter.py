@@ -1,3 +1,4 @@
+import csv
 import os
 import logging
 import numpy as np
@@ -8,13 +9,13 @@ from codify.config.settings import *
 from wordvecs import WordVectors
 from datamodel import DataModel
 from gen_utils import *
-from ml_utils import *
 from nltk import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from sklearn import linear_model, svm
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
-from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.preprocessing import LabelEncoder
+from sklearn import metrics
 
 
 class LemmaTokenizer:
@@ -27,25 +28,6 @@ class LemmaTokenizer:
         return tokens
 #endclass
 
-class UnaryClassifier(BaseEstimator, ClassifierMixin):
-    # A simple unary classifier which return the one class that the data as the prediction
-    def __init__(self, label):
-        self.label = label
-
-    def fit(self, X, y):
-        assert len(np.unique(y)) == 1
-        self.label = np.unique(y)[0]
-        return self
-
-    def predict(self, X):
-        preds = [self.label] * len(X)
-        return np.array(preds)
-
-    def predict_proba(self, X):
-        return np.ones((len(X), 1))
-
-    def predict_log_proba(self, X):
-        return np.zeros((len(X), 1))
 
 class Experimenter:
     """Execute and manage experiments"""
@@ -55,16 +37,24 @@ class Experimenter:
         self.wv = WordVectors()
 
         self.__read_train_test_urls(train_file, test_file)
-        self.dm = None
         self.set_datamodel(dm, process_datamodel, serialise)
 
-        self.productions_data = defaultdict(lambda : defaultdict(list))
+        self.train_data = []
+        self.test_data = []
+        self.channel_func_priors = defaultdict(lambda : defaultdict(float))
+        self.trigger_action_priors = defaultdict(lambda : defaultdict(float))
         # list of all possible trigger_channel, action_channel, trigger_function, action_function
-        self.node_domain = {TRIGGER_CHANNEL: [], ACTION_CHANNEL: [], TRIGGER_FUNC: [], ACTION_FUNC: []}
-        self.__extract_productions_data()
+        self.unique_channel_funcs = defaultdict(list)
+        self.__prepare_train_test_data()
+        
+        self.multiclass = True
+        self.classifiers = defaultdict(lambda : defaultdict(None))
+        self.predictions = [defaultdict(str) for i in range(len(self.test_data))]
+        self.train()
+        self.predict()  # Set predictions for self.test_data to self.predictions
+        self.save_predictions(output_file='../data/predictions.csv')
+        self.evaluate()
 
-        self.classifiers = {}
-        self.train_productions()
 
     def set_datamodel(self, dm, process_datamodel, serialise):
         self.dm = dm
@@ -80,8 +70,6 @@ class Experimenter:
             with open(DATAMODEL, 'r') as data_model:
                 self.logger.info('loading serialised data model')
                 self.dm.data = pickle.load(data_model)
-
-        # self.__enumerate_channels_funcs()
         return None
 
 
@@ -90,143 +78,191 @@ class Experimenter:
             self.train_urls = train_f.readlines()
         with open(test_file, 'r') as test_f:
             self.test_urls = test_f.readlines()
+        # Change lists into dict for quick access
+        self.train_urls = dict((url.strip(),1) for url in self.train_urls)
+        self.test_urls = dict((url.strip(),1) for url in self.test_urls)
         return None
 
-    def __extract_productions_data(self):
-        self.logger.info('Extracting productions\' data')
-        for recipe in self.dm.data:
-            self.productions_data[TRIGGER][recipe.trigger_channel].append(recipe)
-            self.productions_data[recipe.trigger_channel][recipe.trigger_func].append(recipe)
-            self.productions_data[ACTION][recipe.action_channel].append(recipe)
-            self.productions_data[recipe.action_channel][recipe.action_func].append(recipe)
 
-            if recipe.trigger_channel not in self.node_domain[TRIGGER_CHANNEL]:
-                self.node_domain[TRIGGER_CHANNEL].append(recipe.trigger_channel)
-            if recipe.trigger_func not in self.node_domain[TRIGGER_FUNC]:
-                self.node_domain[TRIGGER_FUNC].append(recipe.trigger_func)
-            if recipe.action_channel not in self.node_domain[ACTION_CHANNEL]:
-                self.node_domain[ACTION_CHANNEL].append(recipe.action_channel)
-            if recipe.action_func not in self.node_domain[ACTION_FUNC]:
-                self.node_domain[ACTION_FUNC].append(recipe.action_func)
-        return None
-
-    def __get_classifier(self, nt, train_dict):
-        # given the non-terminal and all the samples with productions having that nt, return a classifier
-
-        label_map = {}
+    def __prepare_train_test_data(self):
+        self.logger.info('Preparing train and test data')
         i = 0
-        for key in train_dict.keys():
-            label_map[key] = i
-            i += 1
-        inv_label_map = {}
-        for k in label_map.keys():
-            inv_label_map[label_map[k]] = k
+        for recipe in self.dm.data:
+            if recipe.url in self.train_urls:
+                self.train_data.append(recipe)
+                # For calculating prior distribution of channels and functions
+                self.channel_func_priors[recipe.trigger_channel][recipe.trigger_func] += 1.0
+                self.channel_func_priors[recipe.action_channel][recipe.action_func] += 1.0
+                self.trigger_action_priors[recipe.trigger_channel][recipe.action_channel] += 1.0
+                # Add channels and functions to exhaustive list
+                self.unique_channel_funcs[TRIGGER_CHANNEL].append(recipe.trigger_channel)
+                self.unique_channel_funcs[TRIGGER_FUNC].append(recipe.trigger_func)
+                self.unique_channel_funcs[ACTION_CHANNEL].append(recipe.action_channel)
+                self.unique_channel_funcs[ACTION_FUNC].append(recipe.action_func)
+                i += 1
+            # List test data
+            if recipe.url in self.test_urls:
+                self.test_data.append(recipe)
+        #endfor
 
-        recipes = []
+        self.unique_channel_funcs = unique(self.unique_channel_funcs)
+        # Generate prior probability distribution of channels and functions
+        for channel in self.channel_func_priors:
+            func_count = 0
+            for func in self.channel_func_priors[channel]:
+                func_count += self.channel_func_priors[channel][func]
+            # If any function is present, turn it into probability distribution
+            if func_count == 0:
+                continue
+            else:
+                for func in self.channel_func_priors[channel]:
+                    self.channel_func_priors[channel][func] /= func_count
+            #endif
+        #endfor
+        for trigger in self.trigger_action_priors:
+            action_count = 0
+            for action in self.trigger_action_priors[trigger]:
+                action_count += self.trigger_action_priors[trigger][action]
+            if action_count == 0:
+                continue
+            else:
+                for action in self.trigger_action_priors[trigger]:
+                    self.trigger_action_priors[trigger][action] /= action_count
+            #endif
+        return None
+
+
+
+    def __get_multiclass_classifier(self, recipes, recipe_label_type):
         X = []
         Y = []
-        # RHS of the production with nt as LHS
-        for rhs in train_dict:
-            for recipe in train_dict[rhs]:
-                if recipe.feats is not None:
-                    recipes.append(recipe)
-                    X.append(recipe.feats)
-                    Y.append(label_map[rhs])
-
-        Y_unique = np.unique(Y)
-        if len(Y_unique) == 0:
-            # no training data found. Return any label as the prediction.
-            label_index = inv_label_map.keys()[0]
-            clf = UnaryClassifier(label_index)
-            return {label_index: inv_label_map[label_index]}, clf
-        if len(Y_unique) == 1:
-            label_index = Y_unique[0]
-            clf = UnaryClassifier(label_index)
-            return {label_index: inv_label_map[label_index]}, clf
-
-        self.logger.info('Learning classifier for %s' % nt)
-        # clf = linear_model.LogisticRegression(C = 10, multi_class='multinomial', class_weight=defaultdict(lambda : 1), solver='lbfgs')
-        clf = linear_model.LogisticRegression(C = 10, class_weight=defaultdict(lambda : 1))
+        for recipe in recipes:
+            X.append(recipe.feats)
+            Y.append(recipe[recipe_label_type])
+        le = LabelEncoder()
+        Y = le.fit_transform(Y)
+        clf = linear_model.LogisticRegression(\
+                multi_class='multinomial', \
+                class_weight='balanced', \
+                solver='lbfgs')
         clf.fit(X, Y)
-        return inv_label_map, clf
-
-    # Note - there could be overlap between channel names and function names (there is just one in the data - Is_It_Christmas? which is both trigger function and trigger channel). Handle it later!
-    def inference(self, X_i):
-        """
-        Given the probabilities of productions, it defines a bayesian network. With S at root and S->trigger, S->action as the first level.
-        trigger->trigger_channel, action->action_channel as the second level. trigger_channel->trigger_function, action_channel->action_function as the third level.
-        This method does inference on the tree given the transition probabilities
-        """
-
-        result = {}
-
-        for root in [TRIGGER, ACTION]:
-            label_map, clf = self.classifiers[root]
-            log_proba = clf.predict_log_proba(X_i)[0]
-            # labels and log_proba indices should be same. But for future extension, the following dict
-            label_to_index = {clf.classes_[i] : i for i in xrange(len(clf.classes_))}
-
-            best_channel_func = {'total_log_prob': float('-inf'), CHANNEL: None, FUNC: None}
-
-            for channel_label in clf.classes_:
-                channel = label_map[channel_label]
-                label_map_channel, clf_channel = self.classifiers[channel]
-                best_func = label_map_channel[clf_channel.predict(X_i)[0]]
-                best_log_proba = np.max(clf_channel.predict_log_proba(X_i))
-
-                total_log_prob = log_proba[label_to_index[channel_label]] + best_log_proba
-
-                if total_log_prob > best_channel_func['total_log_prob']:
-                    best_channel_func['total_log_prob'] = total_log_prob
-                    best_channel_func[CHANNEL] = channel
-                    best_channel_func[FUNC] = best_func
-
-            result[root + '_channel'] = best_channel_func[CHANNEL]
-            result[root + '_func'] = best_channel_func[FUNC]
-
-        return result
+        return (clf, le)
 
 
+    def train(self):
+        self.logger.info('Training')
+        label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        if self.multiclass is True:
+            for label_type in label_types:
+                self.classifiers[label_type] = \
+                        self.__get_multiclass_classifier(self.train_data, label_type)
+        else:
+            #TODO: Implementing multiclass classifier implementation as of now.
+            # Need to think more if binary classifier implementation can or should be here.
+            pass
+        return
 
-    def train_productions(self):
-        # for all non-terminals get a classifier of posterior distribution given the nt
-        for nt in self.productions_data:
-            # if nt != TRIGGER:
-            #     self.classifiers[nt] = None
-            #     continue
-            self.classifiers[nt] = self.__get_classifier(nt, self.productions_data[nt])
 
-    # unused
-    def __enumerate_channels_funcs(self):
-        self.trigger_channels = {}
-        self.trigger_funcs = {}
-        self.action_channels = {}
-        self.action_funcs = {}
-        self.logger.info('enumerating channels and functions')
-        for recipe in self.dm.data:
-            if recipe.trigger_channel not in self.trigger_channels:
-                self.trigger_channels[recipe.trigger_channel] = []
-            self.trigger_channels[recipe.trigger_channel].append(recipe)
-            if recipe.trigger_func not in self.trigger_funcs:
-                self.trigger_funcs[recipe.trigger_func] = []
-            self.trigger_funcs[recipe.trigger_func].append(recipe)
-            if recipe.action_channel not in self.action_channels:
-                self.action_channels[recipe.action_channel] = []
-            self.action_channels[recipe.action_channel].append(recipe)
-            if recipe.action_func not in self.action_funcs:
-                self.action_funcs[recipe.action_func] = []
-            self.action_funcs[recipe.action_func].append(recipe)
-        self.logger.info('done')
-        return None
+    def predict(self):
+        self.logger.info('Predicting for Test')
+        test_X = []
+        all_pred_probas = {}
+        if self.multiclass is True:
+            for recipe in self.test_data:
+                test_X.append(recipe.feats)
+            for label_type in self.classifiers:
+                test_Y_proba = self.classifiers[label_type][0].predict_proba(test_X)
+                all_pred_probas[label_type] = test_Y_proba
+            trigger_channel_labels = self.classifiers[TRIGGER_CHANNEL][1].classes_
+            trigger_func_labels = self.classifiers[TRIGGER_FUNC][1].classes_
+            action_channel_labels = self.classifiers[ACTION_CHANNEL][1].classes_
+            action_func_labels = self.classifiers[ACTION_FUNC][1].classes_
+            for i in range(len(self.test_data)):
+                max_pred_proba = 0.0
+                max_k_labels = {}
+                for label_type in self.classifiers.keys():
+                    max_k_labels[label_type] = self.get_max_k_labels(\
+                            all_pred_probas[label_type][i].tolist(), \
+                            self.classifiers[label_type][1].classes_,
+                            k=5)
+                #endfor
+                for t_channel in max_k_labels[TRIGGER_CHANNEL].keys():
+                    for t_func in max_k_labels[TRIGGER_FUNC].keys():
+                        for a_channel in max_k_labels[ACTION_CHANNEL].keys():
+                            for a_func in max_k_labels[ACTION_FUNC].keys():
+                                pred_proba = 1.0
+                                pred_proba *= max_k_labels[TRIGGER_CHANNEL][t_channel]
+                                pred_proba *= max_k_labels[TRIGGER_FUNC][t_func]
+                                pred_proba *= max_k_labels[ACTION_CHANNEL][a_channel]
+                                pred_proba *= max_k_labels[ACTION_FUNC][a_func]
+                                pred_proba *= self.channel_func_priors[t_channel][t_func]
+                                pred_proba *= self.channel_func_priors[a_channel][a_func]
+                                pred_proba *= self.trigger_action_priors[t_channel][a_channel]
+                                if pred_proba > max_pred_proba:
+                                    self.predictions[i][TRIGGER_CHANNEL] = t_channel
+                                    self.predictions[i][TRIGGER_FUNC] = t_func
+                                    self.predictions[i][ACTION_CHANNEL] = a_channel
+                                    self.predictions[i][ACTION_FUNC] = a_func
+                                #endif
+                            #endfor a_func
+                        #endfor a_channel
+                    #endfor t_func
+                #endfor t_channel
+            #endfor i
+        else:
+            #TODO: Implementing multiclass classifier implementation as of now.
+            # Need to think more if binary classifier implementation can or should be here.
+            pass
+        return
 
-    # unused
-    def get_classifiers(self):
-        clfs = [{CLASSIFIER:svm.SVC(kernel='linear'), STRING:'SVC_LINEAR'},\
-                {CLASSIFIER:svm.SVC(kernel='rbf'), STRING:'SVC_RBF'},\
-                {CLASSIFIER:linear_model.LogisticRegression(), \
-                STRING:'LOGISTIC_REGRESSION'},\
-                ]
-        return clfs
+
+    def get_max_k_labels(self, pred_probas, labels, k):
+        max_k_inds = index_max_k(pred_probas,k)
+        max_labels = {}
+        for i in max_k_inds:
+            max_labels[labels[i]] = pred_probas[i]
+        return max_labels
+
+
+    def save_predictions(self, output_file):
+        fieldnames = [URL, TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        with open(output_file,'w') as output_f:
+            output_writer = csv.DictWriter(output_f, fieldnames=fieldnames)
+            output_writer.writeheader()
+            for i in range(len(self.predictions)):
+                out_dict = {URL:self.test_data[i].url, \
+                        TRIGGER_CHANNEL:self.predictions[i][TRIGGER_CHANNEL], \
+                        TRIGGER_FUNC:self.predictions[i][TRIGGER_FUNC], \
+                        ACTION_CHANNEL:self.predictions[i][ACTION_CHANNEL], \
+                        ACTION_FUNC:self.predictions[i][ACTION_FUNC]
+                        }
+                output_writer.writerow(out_dict)
+            #endfor
+        #endwith
+        return
+
+
+    def evaluate(self):
+        self.logger.info('Evaluating Prediction Scores')
+        channel_labels = []
+        channel_preds = []
+        func_labels = []
+        func_preds = []
+        for i in range(len(self.test_data)):
+            channel_labels.append(self.test_data[i].trigger_channel)
+            channel_labels.append(self.test_data[i].action_channel)
+            func_labels.append(self.test_data[i].trigger_func)
+            func_labels.append(self.test_data[i].action_func)
+            channel_preds.append(self.predictions[i][TRIGGER_CHANNEL])
+            channel_preds.append(self.predictions[i][ACTION_CHANNEL])
+            func_preds.append(self.predictions[i][TRIGGER_FUNC])
+            func_preds.append(self.predictions[i][ACTION_FUNC])
+        channel_accuracy = metrics.accuracy_score(channel_labels, channel_preds)
+        func_accuracy = metrics.accuracy_score(func_labels, func_preds)
+        self.logger.info('Accuracy Scores (Channel, Func) : (%f, %f)' % \
+                (channel_accuracy, func_accuracy))
+        return
+
 
     def process_recipes(self):
         desc_list = []
@@ -239,16 +275,16 @@ class Experimenter:
         tokenizer = LemmaTokenizer()
         self.logger.info('Applying count vectorizer to the data')
         count_vect = CountVectorizer(tokenizer=tokenizer)
-        count_vect_title = CountVectorizer(tokenizer=tokenizer, max_features=10000)
+        count_vect_title = CountVectorizer(tokenizer=tokenizer, max_features=1000)
         desc_term_mat = count_vect.fit_transform(desc_list)
         title_term_mat = count_vect_title.fit_transform(title_list)
         self.logger.info('Applying TF-IDF transform')
         tfidf_transformer_desc = TfidfTransformer()
         tfidf_transformer_title = TfidfTransformer()
-        # desc_term_tfidf = tfidf_transformer_desc.fit_transform(desc_term_mat)
-        title_term_tfidf = tfidf_transformer_title.fit_transform(title_term_mat)
+        desc_term_tfidf = tfidf_transformer_desc.fit_transform(desc_term_mat)
+        # title_term_tfidf = tfidf_transformer_title.fit_transform(title_term_mat)
         # self.logger.info('TF-IDF output shape - ' + str(desc_term_tfidf.shape))
-        self.logger.info('TF-IDF output shape of title term matrix - ' + str(title_term_tfidf.shape))
+        # self.logger.info('TF-IDF output shape of title term matrix - ' + str(title_term_tfidf.shape))
 
         inv_vocab_desc = {v: k for k, v in count_vect.vocabulary_.items()}
         inv_vocab_title = {v: k for k, v in count_vect_title.vocabulary_.items()}
@@ -256,14 +292,14 @@ class Experimenter:
 
         self.logger.info('Extracting features')
         for i in range(len(self.dm.data)):
-            # self.dm.data[i].desc_vector = doc_term_tfidf.getrow(i)
+            self.dm.data[i].feats = desc_term_tfidf.getrow(i).toarray().flatten()
             # self.dm.data[i].set_feats()
             if i % 1000 == 0: self.logger.info('Features extracted for %d recipes' % i)
 
             # cur_row_desc = desc_term_tfidf.getrow(i).toarray()
             # desc_word_indices = np.where(cur_row_desc != 0)[1]
 
-            cur_row_title = title_term_tfidf.getrow(i).toarray()
+            # cur_row_title = title_term_tfidf.getrow(i).toarray()
             # title_word_indices = np.where(cur_row_title != 0)[1]
 
             # if len(desc_word_indices) < DESC_LEN_THRESHOLD:
@@ -283,7 +319,7 @@ class Experimenter:
 
             # self.dm.data[i].feats = np.concatenate((wordvec_feats, cur_row[0]))
 
-            self.dm.data[i].feats = cur_row_title[0]
+            # self.dm.data[i].feats = cur_row_title[0]
 
         return None
 

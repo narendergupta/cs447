@@ -1,16 +1,20 @@
-import logging
 from codify.config.strings import *
 from codify.config.settings import *
 from datamodel import DataModel
 from experimenter import Experimenter
 
 import argparse
+import logging
 
 
 def main(args):
     dm = DataModel(args.data_file)
-    dm.read_data(to_read_count=10000)
-    exp = Experimenter(dm, train_file='../data/train.urls', test_file='../data/test.urls', process_datamodel=True, serialise=False)
+    dm.read_data(to_read_count=100)
+    exp = Experimenter(dm, \
+            train_file='../data/train.urls', \
+            test_file='../data/test.urls', \
+            process_datamodel=True, \
+            serialise=False)
     return exp
 
 

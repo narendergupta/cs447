@@ -1,3 +1,6 @@
+from codify.config.strings import *
+
+
 class Recipe:
     """Class representing an IFTTT recipe"""
     def __init__(self, url, ID, title, desc, author, featured, uses, favs, code):
@@ -17,6 +20,18 @@ class Recipe:
         self.trigger_channel, self.trigger_func, self.trigger_params = '', '', ''
         self.action_channel, self.action_func, self.action_params = '', '', ''
         self.parse_code()
+
+
+    def __getitem__(self, attr):
+        if attr == TRIGGER_CHANNEL:
+            return self.trigger_channel
+        elif attr == TRIGGER_FUNC:
+            return self.trigger_func
+        elif attr == ACTION_CHANNEL:
+            return self.action_channel
+        elif attr == ACTION_FUNC:
+            return self.action_func
+        raise AttributeError('Unknown attribute type')
 
 
     def parse_code(self):

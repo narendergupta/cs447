@@ -53,6 +53,19 @@ def index_max(items):
     return None
 
 
+def index_max_k(items, k, reverse=True):
+    if type(items) is not list:
+        return None
+    desc_sorted = [(items[i],i) for i in range(len(items))]
+    desc_sorted = sorted(desc_sorted, reverse=reverse, key=lambda item : item[0])
+    desc_sorted = desc_sorted[:k]
+    return [desc_sorted[i][1] for i in range(len(desc_sorted))]
+
+
+def index_min_k(items, k):
+    return index_max_k(items, k, reverse=False)
+
+
 def ensure_dir_exists(dir_path):
     if os.path.exists(dir_path) is False or\
             os.path.isdir(dir_path) is False:
