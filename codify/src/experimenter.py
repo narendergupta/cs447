@@ -232,6 +232,7 @@ class Experimenter:
             fieldnames.append(GOLD_ + label_type)
         fieldnames = sorted(fieldnames)
         with open(output_file,'w') as output_f:
+            self.logger.info('Writing prediction and gold labels to: %s ' % output_file)
             output_writer = csv.DictWriter(output_f, fieldnames=fieldnames)
             output_writer.writeheader()
             for i in range(len(self.predictions)):
@@ -275,6 +276,7 @@ class Experimenter:
         self.logger.info('F1 Scores (Channel, Func) : (%f, %f)' % \
                 (channel_f1, func_f1))
         with open(output_file,'w') as output_f:
+            self.logger.info('Writing scores to: %s ' % output_file)
             output_f.write('Accuracy Scores (Channel, Func) : (%f, %f)' % \
                     (channel_accuracy, func_accuracy))
             output_f.write('F1 Scores (Channel, Func) : (%f, %f)' % \
