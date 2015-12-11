@@ -1,7 +1,7 @@
 import os
 import logging
 import numpy as np
-import cPickle
+import pickle
 from collections import defaultdict
 from codify.config.strings import *
 from codify.config.settings import *
@@ -14,7 +14,6 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from sklearn import linear_model, svm
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
-from sklearn.preprocessing import LabelEncoder
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 
@@ -61,7 +60,7 @@ class Experimenter:
 
         self.productions_data = defaultdict(lambda : defaultdict(list))
         # list of all possible trigger_channel, action_channel, trigger_function, action_function
-        self.node_domain = {'trigger_channel': [], 'action_channel': [], 'trigger_func': [], 'action_func': []}
+        self.node_domain = {TRIGGER_CHANNEL: [], ACTION_CHANNEL: [], TRIGGER_FUNC: [], ACTION_FUNC: []}
         self.__extract_productions_data()
 
         self.classifiers = {}
@@ -76,11 +75,11 @@ class Experimenter:
             if serialise:
                 self.logger.info('serialising processed data model')
                 with open(DATAMODEL, 'w') as data_model:
-                    cPickle.dump(self.dm.data, data_model)
+                    pickle.dump(self.dm.data, data_model)
         else:
             with open(DATAMODEL, 'r') as data_model:
                 self.logger.info('loading serialised data model')
-                self.dm.data = cPickle.load(data_model)
+                self.dm.data = pickle.load(data_model)
 
         # self.__enumerate_channels_funcs()
         return None
@@ -96,28 +95,32 @@ class Experimenter:
     def __extract_productions_data(self):
         self.logger.info('Extracting productions\' data')
         for recipe in self.dm.data:
-            self.productions_data['trigger'][recipe.trigger_channel].append(recipe)
+            self.productions_data[TRIGGER][recipe.trigger_channel].append(recipe)
             self.productions_data[recipe.trigger_channel][recipe.trigger_func].append(recipe)
-            self.productions_data['action'][recipe.action_channel].append(recipe)
+            self.productions_data[ACTION][recipe.action_channel].append(recipe)
             self.productions_data[recipe.action_channel][recipe.action_func].append(recipe)
 
-            if recipe.trigger_channel not in self.node_domain['trigger_channel']:
-                self.node_domain['trigger_channel'].append(recipe.trigger_channel)
-            if recipe.trigger_func not in self.node_domain['trigger_func']:
-                self.node_domain['trigger_func'].append(recipe.trigger_func)
-            if recipe.action_channel not in self.node_domain['action_channel']:
-                self.node_domain['action_channel'].append(recipe.action_channel)
-            if recipe.action_func not in self.node_domain['action_func']:
-                self.node_domain['action_func'].append(recipe.action_func)
+            if recipe.trigger_channel not in self.node_domain[TRIGGER_CHANNEL]:
+                self.node_domain[TRIGGER_CHANNEL].append(recipe.trigger_channel)
+            if recipe.trigger_func not in self.node_domain[TRIGGER_FUNC]:
+                self.node_domain[TRIGGER_FUNC].append(recipe.trigger_func)
+            if recipe.action_channel not in self.node_domain[ACTION_CHANNEL]:
+                self.node_domain[ACTION_CHANNEL].append(recipe.action_channel)
+            if recipe.action_func not in self.node_domain[ACTION_FUNC]:
+                self.node_domain[ACTION_FUNC].append(recipe.action_func)
         return None
 
     def __get_classifier(self, nt, train_dict):
         # given the non-terminal and all the samples with productions having that nt, return a classifier
 
-        le = LabelEncoder()
-        le.fit(train_dict.keys())
-        inv_label_map = {le.transform(k): k for k in train_dict.keys()}
-        self.logger.debug('num labels for %s = %d' % (nt, len(inv_label_map)))
+        label_map = {}
+        i = 0
+        for key in train_dict.keys():
+            label_map[key] = i
+            i += 1
+        inv_label_map = {}
+        for k in label_map.keys():
+            inv_label_map[label_map[k]] = k
 
         recipes = []
         X = []
@@ -128,7 +131,7 @@ class Experimenter:
                 if recipe.feats is not None:
                     recipes.append(recipe)
                     X.append(recipe.feats)
-                    Y.append(le.transform(rhs))
+                    Y.append(label_map[rhs])
 
         Y_unique = np.unique(Y)
         if len(Y_unique) == 0:
@@ -157,13 +160,13 @@ class Experimenter:
 
         result = {}
 
-        for root in ['trigger', 'action']:
+        for root in [TRIGGER, ACTION]:
             label_map, clf = self.classifiers[root]
             log_proba = clf.predict_log_proba(X_i)[0]
             # labels and log_proba indices should be same. But for future extension, the following dict
             label_to_index = {clf.classes_[i] : i for i in xrange(len(clf.classes_))}
 
-            best_channel_func = {'total_log_prob': float('-inf'), 'channel': None, 'func': None}
+            best_channel_func = {'total_log_prob': float('-inf'), CHANNEL: None, FUNC: None}
 
             for channel_label in clf.classes_:
                 channel = label_map[channel_label]
@@ -175,11 +178,11 @@ class Experimenter:
 
                 if total_log_prob > best_channel_func['total_log_prob']:
                     best_channel_func['total_log_prob'] = total_log_prob
-                    best_channel_func['channel'] = channel
-                    best_channel_func['func'] = best_func
+                    best_channel_func[CHANNEL] = channel
+                    best_channel_func[FUNC] = best_func
 
-            result[root + '_channel'] = best_channel_func['channel']
-            result[root + '_func'] = best_channel_func['func']
+            result[root + '_channel'] = best_channel_func[CHANNEL]
+            result[root + '_func'] = best_channel_func[FUNC]
 
         return result
 
@@ -188,7 +191,7 @@ class Experimenter:
     def train_productions(self):
         # for all non-terminals get a classifier of posterior distribution given the nt
         for nt in self.productions_data:
-            # if nt != 'trigger':
+            # if nt != TRIGGER:
             #     self.classifiers[nt] = None
             #     continue
             self.classifiers[nt] = self.__get_classifier(nt, self.productions_data[nt])
