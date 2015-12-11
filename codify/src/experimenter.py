@@ -225,16 +225,25 @@ class Experimenter:
 
 
     def save_predictions(self, output_file):
-        fieldnames = [URL, TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        fieldnames = [URL]
+        label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        for label_type in label_types:
+            fieldnames.append(PRED_ + label_type)
+            fieldnames.append(GOLD_ + label_type)
+        fieldnames = sorted(fieldnames)
         with open(output_file,'w') as output_f:
             output_writer = csv.DictWriter(output_f, fieldnames=fieldnames)
             output_writer.writeheader()
             for i in range(len(self.predictions)):
                 out_dict = {URL:self.test_data[i].url, \
-                        TRIGGER_CHANNEL:self.predictions[i][TRIGGER_CHANNEL], \
-                        TRIGGER_FUNC:self.predictions[i][TRIGGER_FUNC], \
-                        ACTION_CHANNEL:self.predictions[i][ACTION_CHANNEL], \
-                        ACTION_FUNC:self.predictions[i][ACTION_FUNC]
+                        PRED_TRIGGER_CHANNEL:self.predictions[i][TRIGGER_CHANNEL], \
+                        PRED_TRIGGER_FUNC:self.predictions[i][TRIGGER_FUNC], \
+                        PRED_ACTION_CHANNEL:self.predictions[i][ACTION_CHANNEL], \
+                        PRED_ACTION_FUNC:self.predictions[i][ACTION_FUNC], \
+                        GOLD_TRIGGER_CHANNEL:self.test_data[i][TRIGGER_CHANNEL], \
+                        GOLD_TRIGGER_FUNC:self.test_data[i][TRIGGER_FUNC], \
+                        GOLD_ACTION_CHANNEL:self.test_data[i][ACTION_CHANNEL], \
+                        GOLD_ACTION_FUNC:self.test_data[i][ACTION_FUNC]
                         }
                 output_writer.writerow(out_dict)
             #endfor
@@ -259,11 +268,17 @@ class Experimenter:
             func_preds.append(self.predictions[i][ACTION_FUNC])
         channel_accuracy = metrics.accuracy_score(channel_labels, channel_preds)
         func_accuracy = metrics.accuracy_score(func_labels, func_preds)
+        channel_f1 = metrics.f1_score(channel_labels, channel_preds, average='weighted')
+        func_f1 = metrics.f1_score(func_labels, func_preds, average='weighted')
         self.logger.info('Accuracy Scores (Channel, Func) : (%f, %f)' % \
                 (channel_accuracy, func_accuracy))
+        self.logger.info('F1 Scores (Channel, Func) : (%f, %f)' % \
+                (channel_f1, func_f1))
         with open(output_file,'w') as output_f:
             output_f.write('Accuracy Scores (Channel, Func) : (%f, %f)' % \
-                (channel_accuracy, func_accuracy))
+                    (channel_accuracy, func_accuracy))
+            output_f.write('F1 Scores (Channel, Func) : (%f, %f)' % \
+                    (channel_f1, func_f1))
         return
 
 
@@ -277,25 +292,25 @@ class Experimenter:
 
         tokenizer = LemmaTokenizer()
         self.logger.info('Applying count vectorizer to the data')
-        count_vect = CountVectorizer(tokenizer=tokenizer)
-        count_vect_title = CountVectorizer(tokenizer=tokenizer, max_features=1000)
+        count_vect = CountVectorizer(analyzer='char_wb', ngram_range=(1,3), max_features=1000)
+        #count_vect_title = CountVectorizer(tokenizer=tokenizer, max_features=1000)
         desc_term_mat = count_vect.fit_transform(desc_list)
-        title_term_mat = count_vect_title.fit_transform(title_list)
+        #title_term_mat = count_vect_title.fit_transform(title_list)
         self.logger.info('Applying TF-IDF transform')
         tfidf_transformer_desc = TfidfTransformer()
-        tfidf_transformer_title = TfidfTransformer()
-        desc_term_tfidf = tfidf_transformer_desc.fit_transform(desc_term_mat)
+        #tfidf_transformer_title = TfidfTransformer()
+        #desc_term_tfidf = tfidf_transformer_desc.fit_transform(desc_term_mat)
         # title_term_tfidf = tfidf_transformer_title.fit_transform(title_term_mat)
         # self.logger.info('TF-IDF output shape - ' + str(desc_term_tfidf.shape))
         # self.logger.info('TF-IDF output shape of title term matrix - ' + str(title_term_tfidf.shape))
 
         inv_vocab_desc = {v: k for k, v in count_vect.vocabulary_.items()}
-        inv_vocab_title = {v: k for k, v in count_vect_title.vocabulary_.items()}
+        #inv_vocab_title = {v: k for k, v in count_vect_title.vocabulary_.items()}
 
 
         self.logger.info('Extracting features')
         for i in range(len(self.dm.data)):
-            self.dm.data[i].feats = desc_term_tfidf.getrow(i).toarray().flatten()
+            self.dm.data[i].feats = desc_term_mat.getrow(i).toarray().flatten()
             # self.dm.data[i].set_feats()
             if i % 1000 == 0: self.logger.info('Features extracted for %d recipes' % i)
 
