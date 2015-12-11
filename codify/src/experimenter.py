@@ -53,7 +53,7 @@ class Experimenter:
         self.train()
         self.predict()  # Set predictions for self.test_data to self.predictions
         self.save_predictions(output_file='../data/predictions.csv')
-        self.evaluate()
+        self.evaluate(output_file='../data/results.txt')
 
 
     def set_datamodel(self, dm, process_datamodel, serialise):
@@ -242,7 +242,7 @@ class Experimenter:
         return
 
 
-    def evaluate(self):
+    def evaluate(self, output_file):
         self.logger.info('Evaluating Prediction Scores')
         channel_labels = []
         channel_preds = []
@@ -260,6 +260,9 @@ class Experimenter:
         channel_accuracy = metrics.accuracy_score(channel_labels, channel_preds)
         func_accuracy = metrics.accuracy_score(func_labels, func_preds)
         self.logger.info('Accuracy Scores (Channel, Func) : (%f, %f)' % \
+                (channel_accuracy, func_accuracy))
+        with open(output_file,'w') as output_f:
+            output_f.write('Accuracy Scores (Channel, Func) : (%f, %f)' % \
                 (channel_accuracy, func_accuracy))
         return
 
