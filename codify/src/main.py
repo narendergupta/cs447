@@ -5,6 +5,7 @@ from experimenter import Experimenter
 
 import argparse
 import logging
+import time
 
 
 def main(args):
@@ -15,6 +16,11 @@ def main(args):
             test_file='../data/test.urls', \
             process_datamodel=True, \
             serialise=False)
+    t1 = time.time()
+    exp.perform_multiclass_experiment()
+    t2 = time.time()
+    timeused = t2 - t1
+    logging.getLogger(LOGGER).info('Time used in experiment: %f seconds' % timeused)
     return exp
 
 

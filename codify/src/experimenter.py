@@ -33,27 +33,17 @@ class Experimenter:
     """Execute and manage experiments"""
     def __init__(self, dm, train_file, test_file, process_datamodel, serialise):
         self.logger = logging.getLogger(LOGGER)
-
-        self.wv = WordVectors()
-
-        self.__read_train_test_urls(train_file, test_file)
         self.set_datamodel(dm, process_datamodel, serialise)
-
+        #self.wv = WordVectors()
         self.train_data = []
         self.test_data = []
         self.channel_func_priors = defaultdict(lambda : defaultdict(float))
         self.trigger_action_priors = defaultdict(lambda : defaultdict(float))
         # list of all possible trigger_channel, action_channel, trigger_function, action_function
         self.unique_channel_funcs = defaultdict(list)
+        self.__read_train_test_urls(train_file, test_file)
         self.__prepare_train_test_data()
-        
-        self.multiclass = True
-        self.classifiers = defaultdict(lambda : defaultdict(None))
-        self.predictions = [defaultdict(str) for i in range(len(self.test_data))]
-        self.train()
-        self.predict()  # Set predictions for self.test_data to self.predictions
-        self.save_predictions(output_file='../data/predictions.csv')
-        self.evaluate(output_file='../data/results.txt')
+        return
 
 
     def set_datamodel(self, dm, process_datamodel, serialise):
@@ -66,10 +56,13 @@ class Experimenter:
                 self.logger.info('serialising processed data model')
                 with open(DATAMODEL, 'w') as data_model:
                     pickle.dump(self.dm.data, data_model)
+                #endwith
+            #endif
         else:
             with open(DATAMODEL, 'r') as data_model:
                 self.logger.info('loading serialised data model')
                 self.dm.data = pickle.load(data_model)
+            #endwith
         return None
 
 
@@ -131,6 +124,16 @@ class Experimenter:
             #endif
         return None
 
+
+    def perform_multiclass_experiment(self):
+        self.multiclass = True
+        self.classifiers = defaultdict(lambda : defaultdict(None))
+        self.predictions = [defaultdict(str) for i in range(len(self.test_data))]
+        self.train()
+        self.predict()  # Set predictions for self.test_data to self.predictions
+        self.save_predictions(output_file='../data/predictions_multiclass.csv')
+        self.evaluate(output_file='../data/results_multiclass.txt')
+        return
 
 
     def __get_multiclass_classifier(self, recipes, recipe_label_type):
@@ -294,7 +297,7 @@ class Experimenter:
 
         tokenizer = LemmaTokenizer()
         self.logger.info('Applying count vectorizer to the data')
-        count_vect = CountVectorizer(analyzer='char_wb', ngram_range=(1,3), max_features=1000)
+        count_vect = CountVectorizer(analyzer='char_wb', ngram_range=(1,3))
         #count_vect_title = CountVectorizer(tokenizer=tokenizer, max_features=1000)
         desc_term_mat = count_vect.fit_transform(desc_list)
         #title_term_mat = count_vect_title.fit_transform(title_list)
