@@ -12,8 +12,6 @@ def main(args):
     dm = DataModel(args.data_file)
     dm.read_data(to_read_count=100)
     exp = Experimenter(dm, \
-            train_file='../data/train.urls', \
-            test_file='../data/test.urls', \
             process_datamodel=True, \
             serialise=False)
     t1 = time.time()

@@ -31,18 +31,10 @@ class LemmaTokenizer:
 
 class Experimenter:
     """Execute and manage experiments"""
-    def __init__(self, dm, train_file, test_file, process_datamodel, serialise):
+    def __init__(self, dm, process_datamodel, serialise):
         self.logger = logging.getLogger(LOGGER)
         self.set_datamodel(dm, process_datamodel, serialise)
         #self.wv = WordVectors()
-        self.train_data = []
-        self.test_data = []
-        self.channel_func_priors = defaultdict(lambda : defaultdict(float))
-        self.trigger_action_priors = defaultdict(lambda : defaultdict(float))
-        # list of all possible trigger_channel, action_channel, trigger_function, action_function
-        self.unique_channel_funcs = defaultdict(list)
-        self.__read_train_test_urls(train_file, test_file)
-        self.__prepare_train_test_data()
         return
 
 
@@ -66,71 +58,13 @@ class Experimenter:
         return None
 
 
-    def __read_train_test_urls(self, train_file, test_file):
-        with open(train_file, 'r') as train_f:
-            self.train_urls = train_f.readlines()
-        with open(test_file, 'r') as test_f:
-            self.test_urls = test_f.readlines()
-        # Change lists into dict for quick access
-        self.train_urls = dict((url.strip(),1) for url in self.train_urls)
-        self.test_urls = dict((url.strip(),1) for url in self.test_urls)
-        return None
-
-
-    def __prepare_train_test_data(self):
-        self.logger.info('Preparing train and test data')
-        i = 0
-        for recipe in self.dm.data:
-            if recipe.url in self.train_urls:
-                self.train_data.append(recipe)
-                # For calculating prior distribution of channels and functions
-                self.channel_func_priors[recipe.trigger_channel][recipe.trigger_func] += 1.0
-                self.channel_func_priors[recipe.action_channel][recipe.action_func] += 1.0
-                self.trigger_action_priors[recipe.trigger_channel][recipe.action_channel] += 1.0
-                # Add channels and functions to exhaustive list
-                self.unique_channel_funcs[TRIGGER_CHANNEL].append(recipe.trigger_channel)
-                self.unique_channel_funcs[TRIGGER_FUNC].append(recipe.trigger_func)
-                self.unique_channel_funcs[ACTION_CHANNEL].append(recipe.action_channel)
-                self.unique_channel_funcs[ACTION_FUNC].append(recipe.action_func)
-                i += 1
-            # List test data
-            if recipe.url in self.test_urls:
-                self.test_data.append(recipe)
-        #endfor
-
-        self.unique_channel_funcs = unique(self.unique_channel_funcs)
-        # Generate prior probability distribution of channels and functions
-        for channel in self.channel_func_priors:
-            func_count = 0
-            for func in self.channel_func_priors[channel]:
-                func_count += self.channel_func_priors[channel][func]
-            # If any function is present, turn it into probability distribution
-            if func_count == 0:
-                continue
-            else:
-                for func in self.channel_func_priors[channel]:
-                    self.channel_func_priors[channel][func] /= func_count
-            #endif
-        #endfor
-        for trigger in self.trigger_action_priors:
-            action_count = 0
-            for action in self.trigger_action_priors[trigger]:
-                action_count += self.trigger_action_priors[trigger][action]
-            if action_count == 0:
-                continue
-            else:
-                for action in self.trigger_action_priors[trigger]:
-                    self.trigger_action_priors[trigger][action] /= action_count
-            #endif
-        return None
-
-
     def perform_multiclass_experiment(self):
         self.multiclass = True
         self.classifiers = defaultdict(lambda : defaultdict(None))
-        self.predictions = [defaultdict(str) for i in range(len(self.test_data))]
+        test_data = self.dm.get_testing_data()
+        self.predictions = [defaultdict(str) for i in range(len(test_data))]
         self.train()
-        self.predict()  # Set predictions for self.test_data to self.predictions
+        self.predict()  # Set predictions for test_data to self.predictions
         self.save_predictions(output_file='../data/predictions_multiclass.csv')
         self.evaluate(output_file='../data/results_multiclass.txt')
         return
@@ -155,10 +89,11 @@ class Experimenter:
     def train(self):
         self.logger.info('Training')
         label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        train_data = self.dm.get_training_data()
         if self.multiclass is True:
             for label_type in label_types:
                 self.classifiers[label_type] = \
-                        self.__get_multiclass_classifier(self.train_data, label_type)
+                        self.__get_multiclass_classifier(train_data, label_type)
         else:
             #TODO: Implementing multiclass classifier implementation as of now.
             # Need to think more if binary classifier implementation can or should be here.
@@ -170,8 +105,9 @@ class Experimenter:
         self.logger.info('Predicting for Test')
         test_X = []
         all_pred_probas = {}
+        test_data = self.dm.get_testing_data()
         if self.multiclass is True:
-            for recipe in self.test_data:
+            for recipe in test_data:
                 test_X.append(recipe.feats)
             for label_type in self.classifiers:
                 test_Y_proba = self.classifiers[label_type][0].predict_proba(test_X)
@@ -180,7 +116,7 @@ class Experimenter:
             trigger_func_labels = self.classifiers[TRIGGER_FUNC][1].classes_
             action_channel_labels = self.classifiers[ACTION_CHANNEL][1].classes_
             action_func_labels = self.classifiers[ACTION_FUNC][1].classes_
-            for i in range(len(self.test_data)):
+            for i in range(len(test_data)):
                 max_pred_proba = 0.0
                 max_k_labels = {}
                 for label_type in self.classifiers.keys():
@@ -189,6 +125,8 @@ class Experimenter:
                             self.classifiers[label_type][1].classes_,
                             k=5)
                 #endfor
+                channel_func_priors = self.dm.get_channel_func_priors()
+                trigger_action_priors = self.dm.get_trigger_action_priors()
                 for t_channel in max_k_labels[TRIGGER_CHANNEL].keys():
                     for t_func in max_k_labels[TRIGGER_FUNC].keys():
                         for a_channel in max_k_labels[ACTION_CHANNEL].keys():
@@ -198,9 +136,9 @@ class Experimenter:
                                 pred_proba *= max_k_labels[TRIGGER_FUNC][t_func]
                                 pred_proba *= max_k_labels[ACTION_CHANNEL][a_channel]
                                 pred_proba *= max_k_labels[ACTION_FUNC][a_func]
-                                pred_proba *= self.channel_func_priors[t_channel][t_func]
-                                pred_proba *= self.channel_func_priors[a_channel][a_func]
-                                pred_proba *= self.trigger_action_priors[t_channel][a_channel]
+                                pred_proba *= channel_func_priors[t_channel][t_func]
+                                pred_proba *= channel_func_priors[a_channel][a_func]
+                                pred_proba *= trigger_action_priors[t_channel][a_channel]
                                 if pred_proba > max_pred_proba:
                                     self.predictions[i][TRIGGER_CHANNEL] = t_channel
                                     self.predictions[i][TRIGGER_FUNC] = t_func
@@ -230,6 +168,7 @@ class Experimenter:
     def save_predictions(self, output_file):
         fieldnames = [URL]
         label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        test_data = self.dm.get_testing_data()
         for label_type in label_types:
             fieldnames.append(PRED_ + label_type)
             fieldnames.append(GOLD_ + label_type)
@@ -239,15 +178,15 @@ class Experimenter:
             output_writer = csv.DictWriter(output_f, fieldnames=fieldnames)
             output_writer.writeheader()
             for i in range(len(self.predictions)):
-                out_dict = {URL:self.test_data[i].url, \
+                out_dict = {URL:test_data[i].url, \
                         PRED_TRIGGER_CHANNEL:self.predictions[i][TRIGGER_CHANNEL], \
                         PRED_TRIGGER_FUNC:self.predictions[i][TRIGGER_FUNC], \
                         PRED_ACTION_CHANNEL:self.predictions[i][ACTION_CHANNEL], \
                         PRED_ACTION_FUNC:self.predictions[i][ACTION_FUNC], \
-                        GOLD_TRIGGER_CHANNEL:self.test_data[i][TRIGGER_CHANNEL], \
-                        GOLD_TRIGGER_FUNC:self.test_data[i][TRIGGER_FUNC], \
-                        GOLD_ACTION_CHANNEL:self.test_data[i][ACTION_CHANNEL], \
-                        GOLD_ACTION_FUNC:self.test_data[i][ACTION_FUNC]
+                        GOLD_TRIGGER_CHANNEL:test_data[i][TRIGGER_CHANNEL], \
+                        GOLD_TRIGGER_FUNC:test_data[i][TRIGGER_FUNC], \
+                        GOLD_ACTION_CHANNEL:test_data[i][ACTION_CHANNEL], \
+                        GOLD_ACTION_FUNC:test_data[i][ACTION_FUNC]
                         }
                 output_writer.writerow(out_dict)
             #endfor
@@ -261,11 +200,12 @@ class Experimenter:
         channel_preds = []
         func_labels = []
         func_preds = []
-        for i in range(len(self.test_data)):
-            channel_labels.append(self.test_data[i].trigger_channel)
-            channel_labels.append(self.test_data[i].action_channel)
-            func_labels.append(self.test_data[i].trigger_func)
-            func_labels.append(self.test_data[i].action_func)
+        test_data = self.dm.get_testing_data()
+        for i in range(len(test_data)):
+            channel_labels.append(test_data[i].trigger_channel)
+            channel_labels.append(test_data[i].action_channel)
+            func_labels.append(test_data[i].trigger_func)
+            func_labels.append(test_data[i].action_func)
             channel_preds.append(self.predictions[i][TRIGGER_CHANNEL])
             channel_preds.append(self.predictions[i][ACTION_CHANNEL])
             func_preds.append(self.predictions[i][TRIGGER_FUNC])
@@ -297,7 +237,7 @@ class Experimenter:
 
         tokenizer = LemmaTokenizer()
         self.logger.info('Applying count vectorizer to the data')
-        count_vect = CountVectorizer(analyzer='char_wb', ngram_range=(1,3))
+        count_vect = CountVectorizer(analyzer='char_wb', ngram_range=(1,3), max_features=2000)
         #count_vect_title = CountVectorizer(tokenizer=tokenizer, max_features=1000)
         desc_term_mat = count_vect.fit_transform(desc_list)
         #title_term_mat = count_vect_title.fit_transform(title_list)
