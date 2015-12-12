@@ -62,7 +62,7 @@ class Experimenter:
         test_data = self.dm.get_testing_data()
         (train_data, test_data) = self.dm.get_featured_recipes()
         classifiers = self.train(train_data)
-        predictions = self.predict(classifiers, test_data)
+        predictions = self.predict_joint_everything(classifiers, test_data)
         self.save_predictions(predictions, output_file='../data/predictions_multiclass.csv')
         self.evaluate(test_data, predictions, output_file='../data/results_multiclass.txt')
         return
@@ -101,7 +101,7 @@ class Experimenter:
         return None
 
 
-    def predict(self, classifiers, test_data):
+    def predict_joint_everything(self, classifiers, test_data):
         predictions = [defaultdict(str) for i in range(len(test_data))]
         self.logger.info('Predicting for Test')
         test_X = []
@@ -149,6 +149,99 @@ class Experimenter:
                         #endfor a_channel
                     #endfor t_func
                 #endfor t_channel
+            #endfor i
+            return predictions
+        else:
+            #TODO: Implementing multiclass classifier implementation as of now.
+            # Need to think more if binary classifier implementation can or should be here.
+            pass
+        return
+
+
+    def predict_joint_channel_funcs(self, classifiers, test_data):
+        predictions = [defaultdict(str) for i in range(len(test_data))]
+        self.logger.info('Predicting for Test')
+        test_X = []
+        all_pred_probas = {}
+        if self.multiclass is True:
+            for recipe in test_data:
+                test_X.append(recipe.feats)
+            for label_type in classifiers:
+                test_Y_proba = classifiers[label_type][0].predict_proba(test_X)
+                all_pred_probas[label_type] = test_Y_proba
+            trigger_channel_labels = classifiers[TRIGGER_CHANNEL][1].classes_
+            trigger_func_labels = classifiers[TRIGGER_FUNC][1].classes_
+            action_channel_labels = classifiers[ACTION_CHANNEL][1].classes_
+            action_func_labels = classifiers[ACTION_FUNC][1].classes_
+            for i in range(len(test_data)):
+                max_pred_proba = 0.0
+                max_k_labels = {}
+                for label_type in classifiers.keys():
+                    max_k_labels[label_type] = self.get_max_k_labels(\
+                            all_pred_probas[label_type][i].tolist(), \
+                            classifiers[label_type][1].classes_,
+                            k=5)
+                #endfor
+                channel_func_priors = self.dm.get_channel_func_priors()
+                for t_channel in max_k_labels[TRIGGER_CHANNEL].keys():
+                    for t_func in max_k_labels[TRIGGER_FUNC].keys():
+                        pred_proba = 1.0
+                        pred_proba *= max_k_labels[TRIGGER_CHANNEL][t_channel]
+                        pred_proba *= max_k_labels[TRIGGER_FUNC][t_func]
+                        pred_proba *= channel_func_priors[t_channel][t_func]
+                        if pred_proba > max_pred_proba:
+                            predictions[i][TRIGGER_CHANNEL] = t_channel
+                            predictions[i][TRIGGER_FUNC] = t_func
+                        #endif
+                    #endfor t_func
+                #endfor t_channel
+                for a_channel in max_k_labels[ACTION_CHANNEL].keys():
+                    for a_func in max_k_labels[ACTION_FUNC].keys():
+                        pred_proba = 1.0
+                        pred_proba *= max_k_labels[ACTION_CHANNEL][a_channel]
+                        pred_proba *= max_k_labels[ACTION_FUNC][a_func]
+                        pred_proba *= channel_func_priors[a_channel][a_func]
+                        if pred_proba > max_pred_proba:
+                            predictions[i][ACTION_CHANNEL] = a_channel
+                            predictions[i][ACTION_FUNC] = a_func
+                        #endif
+                    #endfor a_func
+                #endfor a_channel
+            #endfor i
+            return predictions
+        else:
+            #TODO: Implementing multiclass classifier implementation as of now.
+            # Need to think more if binary classifier implementation can or should be here.
+            pass
+        return
+
+
+
+    def predict_independent(self, classifiers, test_data):
+        predictions = [defaultdict(str) for i in range(len(test_data))]
+        self.logger.info('Predicting for Test')
+        test_X = []
+        all_pred_probas = {}
+        if self.multiclass is True:
+            for recipe in test_data:
+                test_X.append(recipe.feats)
+            for label_type in classifiers:
+                test_Y_proba = classifiers[label_type][0].predict_proba(test_X)
+                all_pred_probas[label_type] = test_Y_proba
+            trigger_channel_labels = classifiers[TRIGGER_CHANNEL][1].classes_
+            trigger_func_labels = classifiers[TRIGGER_FUNC][1].classes_
+            action_channel_labels = classifiers[ACTION_CHANNEL][1].classes_
+            action_func_labels = classifiers[ACTION_FUNC][1].classes_
+            for i in range(len(test_data)):
+                max_pred_proba = 0.0
+                max_k_labels = {}
+                for label_type in classifiers.keys():
+                    max_k_labels[label_type] = self.get_max_k_labels(\
+                            all_pred_probas[label_type][i].tolist(), \
+                            classifiers[label_type][1].classes_,
+                            k=1)
+                    predictions[i][label_type] = list(max_k_labels.keys())[0]
+                #endfor
             #endfor i
             return predictions
         else:
