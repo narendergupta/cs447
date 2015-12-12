@@ -3,7 +3,7 @@ from collections import defaultdict
 from codify.config.strings import *
 from codify.config.settings import *
 from recipe import Recipe
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 import csv
 
@@ -166,14 +166,18 @@ class DataModel:
         #end try except
 
 
-    def get_featured_recipes(self, analyzer='char_wb', ngram_range=(1,3), \
+    def get_featured_recipes(self, tokenizer=None, \
+            analyzer='char', ngram_range=(1,3), \
+            stop_words='enlish', use_idf=False, \
             max_features=1000):
         train_feats, test_feats = [], []
-        bow_cv = CountVectorizer(analyzer=analyzer, ngram_range=ngram_range, \
+        transformer = TfidfVectorizer(tokenizer=tokenizer,\
+                analyzer=analyzer, ngram_range=ngram_range, \
+                stop_words=stop_words, use_idf=use_idf, \
                 max_features=max_features)
-        bow_cv.fit(self.__get_training_titles())
-        training_mat = bow_cv.transform(self.__get_training_titles())
-        testing_mat = bow_cv.transform(self.__get_testing_titles())
+        transformer.fit(self.__get_training_titles())
+        training_mat = transformer.transform(self.__get_training_titles())
+        testing_mat = transformer.transform(self.__get_testing_titles())
         train_data = self.get_training_data()
         test_data = self.get_testing_data()
         for i in range(len(train_data)):
