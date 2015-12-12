@@ -3,6 +3,7 @@ from collections import defaultdict
 from codify.config.strings import *
 from codify.config.settings import *
 from recipe import Recipe
+from sklearn.feature_extraction.text import CountVectorizer
 
 import csv
 
@@ -140,4 +141,49 @@ class DataModel:
             return self.trigger_action_priors
         #end try except
         
+
+    def __get_training_titles(self):
+        try:
+            return self.train_titles
+        except AttributeError:
+            self.train_titles = []
+            train_data = self.get_training_data()
+            for recipe in train_data:
+                self.train_titles.append(recipe.title)
+            return self.train_titles
+        #end try except
+
+
+    def __get_testing_titles(self):
+        try:
+            return self.test_titles
+        except AttributeError:
+            self.test_titles = []
+            test_data = self.get_testing_data()
+            for recipe in test_data:
+                self.test_titles.append(recipe.title)
+            return self.test_titles
+        #end try except
+
+
+    def get_featured_recipes(self, analyzer='char_wb', ngram_range=(1,3), \
+            max_features=1000):
+        train_feats, test_feats = [], []
+        bow_cv = CountVectorizer(analyzer=analyzer, ngram_range=ngram_range, \
+                max_features=max_features)
+        bow_cv.fit(self.__get_training_titles())
+        training_mat = bow_cv.transform(self.__get_training_titles())
+        testing_mat = bow_cv.transform(self.__get_testing_titles())
+        train_data = self.get_training_data()
+        test_data = self.get_testing_data()
+        for i in range(len(train_data)):
+            recipe = train_data[i]
+            recipe.feats = training_mat.getrow(i).toarray().flatten()
+            train_feats.append(recipe)
+        for i in range(len(test_data)):
+            recipe = test_data[i]
+            recipe.feats = testing_mat.getrow(i).toarray().flatten()
+            test_feats.append(recipe)
+        return (train_feats, test_feats)
+
 

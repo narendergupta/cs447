@@ -43,7 +43,6 @@ class Experimenter:
         if (not os.path.isfile(DATAMODEL)) or process_datamodel:
             # self.wv.set_embeddings()
             self.logger.info('processing recipes ...')
-            self.process_recipes()
             if serialise:
                 self.logger.info('serialising processed data model')
                 with open(DATAMODEL, 'w') as data_model:
@@ -60,13 +59,12 @@ class Experimenter:
 
     def perform_multiclass_experiment(self):
         self.multiclass = True
-        self.classifiers = defaultdict(lambda : defaultdict(None))
         test_data = self.dm.get_testing_data()
-        self.predictions = [defaultdict(str) for i in range(len(test_data))]
-        self.train()
-        self.predict()  # Set predictions for test_data to self.predictions
-        self.save_predictions(output_file='../data/predictions_multiclass.csv')
-        self.evaluate(output_file='../data/results_multiclass.txt')
+        (train_data, test_data) = self.dm.get_featured_recipes()
+        classifiers = self.train(train_data)
+        predictions = self.predict(classifiers, test_data)
+        self.save_predictions(predictions, output_file='../data/predictions_multiclass.csv')
+        self.evaluate(test_data, predictions, output_file='../data/results_multiclass.txt')
         return
 
 
@@ -86,43 +84,45 @@ class Experimenter:
         return (clf, le)
 
 
-    def train(self):
+    def train(self, train_data):
         self.logger.info('Training')
+        classifiers = defaultdict(lambda : defaultdict(None))
         label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
-        train_data = self.dm.get_training_data()
         if self.multiclass is True:
             for label_type in label_types:
-                self.classifiers[label_type] = \
+                classifiers[label_type] = \
                         self.__get_multiclass_classifier(train_data, label_type)
+            #end for
+            return classifiers
         else:
             #TODO: Implementing multiclass classifier implementation as of now.
             # Need to think more if binary classifier implementation can or should be here.
             pass
-        return
+        return None
 
 
-    def predict(self):
+    def predict(self, classifiers, test_data):
+        predictions = [defaultdict(str) for i in range(len(test_data))]
         self.logger.info('Predicting for Test')
         test_X = []
         all_pred_probas = {}
-        test_data = self.dm.get_testing_data()
         if self.multiclass is True:
             for recipe in test_data:
                 test_X.append(recipe.feats)
-            for label_type in self.classifiers:
-                test_Y_proba = self.classifiers[label_type][0].predict_proba(test_X)
+            for label_type in classifiers:
+                test_Y_proba = classifiers[label_type][0].predict_proba(test_X)
                 all_pred_probas[label_type] = test_Y_proba
-            trigger_channel_labels = self.classifiers[TRIGGER_CHANNEL][1].classes_
-            trigger_func_labels = self.classifiers[TRIGGER_FUNC][1].classes_
-            action_channel_labels = self.classifiers[ACTION_CHANNEL][1].classes_
-            action_func_labels = self.classifiers[ACTION_FUNC][1].classes_
+            trigger_channel_labels = classifiers[TRIGGER_CHANNEL][1].classes_
+            trigger_func_labels = classifiers[TRIGGER_FUNC][1].classes_
+            action_channel_labels = classifiers[ACTION_CHANNEL][1].classes_
+            action_func_labels = classifiers[ACTION_FUNC][1].classes_
             for i in range(len(test_data)):
                 max_pred_proba = 0.0
                 max_k_labels = {}
-                for label_type in self.classifiers.keys():
+                for label_type in classifiers.keys():
                     max_k_labels[label_type] = self.get_max_k_labels(\
                             all_pred_probas[label_type][i].tolist(), \
-                            self.classifiers[label_type][1].classes_,
+                            classifiers[label_type][1].classes_,
                             k=5)
                 #endfor
                 channel_func_priors = self.dm.get_channel_func_priors()
@@ -140,16 +140,17 @@ class Experimenter:
                                 pred_proba *= channel_func_priors[a_channel][a_func]
                                 pred_proba *= trigger_action_priors[t_channel][a_channel]
                                 if pred_proba > max_pred_proba:
-                                    self.predictions[i][TRIGGER_CHANNEL] = t_channel
-                                    self.predictions[i][TRIGGER_FUNC] = t_func
-                                    self.predictions[i][ACTION_CHANNEL] = a_channel
-                                    self.predictions[i][ACTION_FUNC] = a_func
+                                    predictions[i][TRIGGER_CHANNEL] = t_channel
+                                    predictions[i][TRIGGER_FUNC] = t_func
+                                    predictions[i][ACTION_CHANNEL] = a_channel
+                                    predictions[i][ACTION_FUNC] = a_func
                                 #endif
                             #endfor a_func
                         #endfor a_channel
                     #endfor t_func
                 #endfor t_channel
             #endfor i
+            return predictions
         else:
             #TODO: Implementing multiclass classifier implementation as of now.
             # Need to think more if binary classifier implementation can or should be here.
@@ -165,7 +166,7 @@ class Experimenter:
         return max_labels
 
 
-    def save_predictions(self, output_file):
+    def save_predictions(self, predictions, output_file):
         fieldnames = [URL]
         label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
         test_data = self.dm.get_testing_data()
@@ -177,12 +178,12 @@ class Experimenter:
             self.logger.info('Writing prediction and gold labels to: %s ' % output_file)
             output_writer = csv.DictWriter(output_f, fieldnames=fieldnames)
             output_writer.writeheader()
-            for i in range(len(self.predictions)):
+            for i in range(len(predictions)):
                 out_dict = {URL:test_data[i].url, \
-                        PRED_TRIGGER_CHANNEL:self.predictions[i][TRIGGER_CHANNEL], \
-                        PRED_TRIGGER_FUNC:self.predictions[i][TRIGGER_FUNC], \
-                        PRED_ACTION_CHANNEL:self.predictions[i][ACTION_CHANNEL], \
-                        PRED_ACTION_FUNC:self.predictions[i][ACTION_FUNC], \
+                        PRED_TRIGGER_CHANNEL:predictions[i][TRIGGER_CHANNEL], \
+                        PRED_TRIGGER_FUNC:predictions[i][TRIGGER_FUNC], \
+                        PRED_ACTION_CHANNEL:predictions[i][ACTION_CHANNEL], \
+                        PRED_ACTION_FUNC:predictions[i][ACTION_FUNC], \
                         GOLD_TRIGGER_CHANNEL:test_data[i][TRIGGER_CHANNEL], \
                         GOLD_TRIGGER_FUNC:test_data[i][TRIGGER_FUNC], \
                         GOLD_ACTION_CHANNEL:test_data[i][ACTION_CHANNEL], \
@@ -194,22 +195,21 @@ class Experimenter:
         return
 
 
-    def evaluate(self, output_file):
+    def evaluate(self, test_data, predictions, output_file):
         self.logger.info('Evaluating Prediction Scores')
         channel_labels = []
         channel_preds = []
         func_labels = []
         func_preds = []
-        test_data = self.dm.get_testing_data()
         for i in range(len(test_data)):
             channel_labels.append(test_data[i].trigger_channel)
             channel_labels.append(test_data[i].action_channel)
             func_labels.append(test_data[i].trigger_func)
             func_labels.append(test_data[i].action_func)
-            channel_preds.append(self.predictions[i][TRIGGER_CHANNEL])
-            channel_preds.append(self.predictions[i][ACTION_CHANNEL])
-            func_preds.append(self.predictions[i][TRIGGER_FUNC])
-            func_preds.append(self.predictions[i][ACTION_FUNC])
+            channel_preds.append(predictions[i][TRIGGER_CHANNEL])
+            channel_preds.append(predictions[i][ACTION_CHANNEL])
+            func_preds.append(predictions[i][TRIGGER_FUNC])
+            func_preds.append(predictions[i][ACTION_FUNC])
         channel_accuracy = metrics.accuracy_score(channel_labels, channel_preds)
         func_accuracy = metrics.accuracy_score(func_labels, func_preds)
         channel_f1 = metrics.f1_score(channel_labels, channel_preds, average='weighted')
@@ -227,6 +227,8 @@ class Experimenter:
         return
 
 
+    # Unused
+    # TODO: Need to move feature extraction part to datamodel as is done partially now
     def process_recipes(self):
         desc_list = []
         title_list = []
