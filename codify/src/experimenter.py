@@ -57,7 +57,7 @@ class Experimenter:
         return None
 
 
-    def perform_multiclass_experiment(self):
+    def perform_multiclass_experiment(self, prediction_file, result_file):
         self.multiclass = True
         test_data = self.dm.get_testing_data()
         self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
@@ -65,9 +65,11 @@ class Experimenter:
         train_data = self.dm.get_training_data()
         test_data = self.dm.get_testing_data()
         classifiers = self.multiclass_train(train_data)
-        predictions = self.multiclass_predict(classifiers, test_data, pred_mode=JOINT_EVERYTHING, use_exclusion=True)
-        self.save_predictions(predictions, output_file='../data/predictions_multiclass.csv')
-        self.evaluate(test_data, predictions, output_file='../data/results_multiclass.txt')
+        predictions = self.multiclass_predict(classifiers, test_data, \
+                pred_mode=JOINT_EVERYTHING, \
+                use_exclusion=True)
+        self.save_predictions(predictions, output_file=prediction_file)
+        self.evaluate(test_data, predictions, output_file=result_file)
         return
 
 

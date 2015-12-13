@@ -10,12 +10,14 @@ import time
 
 def main(args):
     dm = DataModel(args.data_file)
-    dm.read_data(to_read_count=100)
+    dm.read_data(to_read_count=1000)
     exp = Experimenter(dm, \
             process_datamodel=True, \
             serialise=False)
     t1 = time.time()
-    exp.perform_multiclass_experiment()
+    exp.perform_multiclass_experiment(\
+            prediction_file='../data/multiclass_predictions.csv', \
+            result_file='../data/multiclass_results.txt')
     t2 = time.time()
     timeused = t2 - t1
     logging.getLogger(LOGGER).info('Time used in experiment (hour:min:sec): %d:%d:%d' % \
