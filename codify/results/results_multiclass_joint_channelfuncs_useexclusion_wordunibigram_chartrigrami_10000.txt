@@ -1,0 +1,1 @@
+Accuracy Scores (Channel, Func) : (0.163415, 0.092683)F1 Scores (Channel, Func) : (0.132869, 0.070283)
