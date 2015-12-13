@@ -109,7 +109,7 @@ class Experimenter:
         self.logger.info('Data Size = Training:Testing::%d:%d' % (len(train_data), len(test_data)))
         if need_to_extract_features is True:
             self.logger.info('Extracting Bag of Words features for hierarchical multiclass classification')
-            #self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
+            self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
             self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
         (channel_classifiers, func_classifiers) = self.hierarchical_multiclass_train(train_data)
         predictions = self.hierarchical_multiclass_predict(
