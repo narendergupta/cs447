@@ -1,21 +1,21 @@
-import csv
-import os
-import logging
-import numpy as np
-import pickle
-from collections import defaultdict
 from codify.config.strings import *
 from codify.config.settings import *
+from collections import defaultdict
 from wordvecs import WordVectors
 from datamodel import DataModel
 from gen_utils import *
 from nltk import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-from sklearn import linear_model, svm
-from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+from sklearn import linear_model
 from sklearn.preprocessing import LabelEncoder
 from sklearn import metrics
+
+import csv
+import os
+import logging
+import numpy as np
+import pickle
 
 
 class LemmaTokenizer:
@@ -57,30 +57,172 @@ class Experimenter:
         return None
 
 
-    def perform_multiclass_experiment(self, prediction_file, result_file):
-        self.multiclass = True
-        test_data = self.dm.get_testing_data()
-        self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
-        self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
+    def perform_multiclass_experiment(self, pred_mode=JOINT_EVERYTHING,
+            use_exclusion=True,
+            need_to_extract_features=False,
+            prediction_file='../data/binary_predictions.csv',
+            result_file='../data/binary_results.txt'):
+        if need_to_extract_features is True:
+            self.logger.info('Extracting Bag of Words features for multiclass classification')
+            self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
+            self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
         train_data = self.dm.get_training_data()
         test_data = self.dm.get_testing_data()
         classifiers = self.multiclass_train(train_data)
-        predictions = self.multiclass_predict(classifiers, test_data, \
-                pred_mode=JOINT_EVERYTHING, \
-                use_exclusion=True)
+        predictions = self.multiclass_predict(classifiers, test_data,
+                pred_mode=pred_mode, top_k=5, use_exclusion=use_exclusion)
+        self.save_predictions(predictions, output_file=prediction_file)
+        self.evaluate(test_data, predictions, output_file=result_file)
+        return
+
+
+    def perform_binary_experiment(self, pred_mode=JOINT_EVERYTHING,
+            use_exclusion=True,
+            need_to_extract_features=False,
+            prediction_file='../data/multiclass_predictions.csv',
+            result_file='../data/multiclass_results.txt'):
+        if need_to_extract_features is True:
+            self.logger.info('Extracting Bag of Words features for binary classification')
+            self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
+            self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
+        train_data = self.dm.get_training_data()
+        test_data = self.dm.get_testing_data()
+        classifiers = self.binary_train(train_data)
+        predictions = self.binary_predict(classifiers, test_data,
+                pred_mode=JOINT_EVERYTHING, top_k=5, use_exclusion=use_exclusion)
         self.save_predictions(predictions, output_file=prediction_file)
         self.evaluate(test_data, predictions, output_file=result_file)
         return
 
 
     def multiclass_train(self, train_data):
-        self.logger.info('Training')
+        self.logger.info('Training using multiclass classifiers')
         classifiers = defaultdict(lambda : defaultdict(None))
         label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
         for label_type in label_types:
             classifiers[label_type] = \
                     self.__multiclass_get_classifier(train_data, label_type)
         #end for
+        return classifiers
+
+
+    def multiclass_predict(self, classifiers, test_data, \
+            pred_mode=JOINT_EVERYTHING, top_k=5, use_exclusion=False):
+        predictions = [defaultdict(str) for i in range(len(test_data))]
+        self.logger.info('Predicting using multiclass classifiers')
+        test_X = []
+        all_pred_probas = {}
+        for recipe in test_data:
+            test_X.append(recipe.feats)
+        for label_type in classifiers:
+            test_Y_proba = classifiers[label_type][0].predict_proba(test_X)
+            all_pred_probas[label_type] = test_Y_proba
+        if pred_mode == INDEPENDENT:
+            top_k = 1
+        for i in range(len(test_data)):
+            max_pred_proba = 0.0
+            top_k_labels = {}
+            all_labels = {}
+            for label_type in classifiers.keys():
+                top_k_labels[label_type] = self.__get_top_k_labels(\
+                        all_pred_probas[label_type][i].tolist(), \
+                        classifiers[label_type][1].classes_,
+                        k=top_k)
+                all_labels[label_type] = self.__get_top_k_labels(\
+                        all_pred_probas[label_type][i].tolist(), \
+                        classifiers[label_type][1].classes_,
+                        k=len(all_pred_probas[label_type][i].tolist()))
+            #endfor
+            if pred_mode == JOINT_EVERYTHING:
+                predictions[i] = self.__predict_joint_everything(\
+                        all_labels, top_k_labels, use_exclusion=use_exclusion)
+            elif pred_mode == JOINT_CHANNEL_FUNCS:
+                predictions[i] = self.__predict_joint_channel_funcs(\
+                        all_labels, top_k_labels, use_exclusion=use_exclusion)
+            elif pred_mode == INDEPENDENT:
+                predictions[i] = self.__predict_independent(\
+                        all_labels, top_k_labels, use_exclusion=use_exclusion)
+        #endfor i
+        return predictions
+
+
+    def binary_train(self, train_data):
+        self.logger.info('Training using binary classifiers')
+        classifiers = defaultdict(lambda : defaultdict(None))
+        label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        for label_type in label_types:
+            classifiers[label_type] = \
+                    self.__binary_get_classifiers(train_data, label_type)
+        #end for
+        return classifiers
+
+
+    def binary_predict(self, classifiers, test_data, \
+            pred_mode=JOINT_EVERYTHING, top_k=5, use_exclusion=False):
+        predictions = [defaultdict(str) for i in range(len(test_data))]
+        self.logger.info('Predicting using binary classifiers')
+        test_X = []
+        for recipe in test_data:
+            test_X.append(recipe.feats)
+        all_pred_probas = {}
+        label_type_tokens = {}
+        label_types = [TRIGGER_CHANNEL, TRIGGER_FUNC, ACTION_CHANNEL, ACTION_FUNC]
+        for label_type in label_types:
+            all_pred_probas[label_type] = []
+            label_type_tokens[label_type] = list(classifiers[label_type].keys())
+            label_type_preds = np.zeros(\
+                    shape=(len(test_data),len(label_type_tokens[label_type])))
+            i = 0
+            for token in label_type_tokens[label_type]:
+                clf = classifiers[label_type][token]
+                test_Y_proba = clf.predict_proba(test_X)
+                test_pos_proba = test_Y_proba[:,1]
+                label_type_preds[:,i] = test_pos_proba
+                i += 1
+            all_pred_probas[label_type] = label_type_preds
+        if pred_mode == INDEPENDENT:
+            top_k = 1
+        for i in range(len(test_data)):
+            max_pred_proba = 0.0
+            top_k_labels = {}
+            all_labels = {}
+            for label_type in label_types:
+                top_k_labels[label_type] = self.__get_top_k_labels(\
+                        all_pred_probas[label_type][i].tolist(), \
+                        label_type_tokens[label_type],
+                        k=top_k)
+                all_labels[label_type] = self.__get_top_k_labels(\
+                        all_pred_probas[label_type][i].tolist(), \
+                        label_type_tokens[label_type],
+                        k=len(all_pred_probas[label_type][i].tolist()))
+            #endfor
+            if pred_mode == JOINT_EVERYTHING:
+                predictions[i] = self.__predict_joint_everything(\
+                        all_labels, top_k_labels, use_exclusion=use_exclusion)
+            elif pred_mode == JOINT_CHANNEL_FUNCS:
+                predictions[i] = self.__predict_joint_channel_funcs(\
+                        all_labels, top_k_labels, use_exclusion=use_exclusion)
+            elif pred_mode == INDEPENDENT:
+                predictions[i] = self.__predict_independent(\
+                        all_labels, top_k_labels, use_exclusion=use_exclusion)
+        #endfor i
+        return predictions
+
+
+    def __binary_get_classifiers(self, recipes, recipe_label_type):
+        classifiers = defaultdict(None)
+        unique_labels = []
+        for recipe in recipes:
+            unique_labels.append(recipe[recipe_label_type])
+        unique_labels = unique(unique_labels)
+        for label in unique_labels:
+            X, Y = [], []
+            for recipe in recipes:
+                X.append(recipe.feats)
+                Y.append(1 if recipe[recipe_label_type]==label else 0)
+            clf = linear_model.LogisticRegression(class_weight='balanced')
+            clf.fit(X, Y)
+            classifiers[label] = clf
         return classifiers
 
 
@@ -100,47 +242,7 @@ class Experimenter:
         return (clf, le)
 
 
-    def multiclass_predict(self, classifiers, test_data, \
-            pred_mode=JOINT_EVERYTHING, top_k=5, use_exclusion=False):
-        predictions = [defaultdict(str) for i in range(len(test_data))]
-        self.logger.info('Predicting for Test')
-        test_X = []
-        all_pred_probas = {}
-        for recipe in test_data:
-            test_X.append(recipe.feats)
-        for label_type in classifiers:
-            test_Y_proba = classifiers[label_type][0].predict_proba(test_X)
-            all_pred_probas[label_type] = test_Y_proba
-        if pred_mode == INDEPENDENT:
-            top_k = 1
-        for i in range(len(test_data)):
-            max_pred_proba = 0.0
-            top_k_labels = {}
-            all_labels = {}
-            for label_type in classifiers.keys():
-                top_k_labels[label_type] = self.__multiclass_get_top_k_labels(\
-                        all_pred_probas[label_type][i].tolist(), \
-                        classifiers[label_type][1].classes_,
-                        k=top_k)
-                all_labels[label_type] = self.__multiclass_get_top_k_labels(\
-                        all_pred_probas[label_type][i].tolist(), \
-                        classifiers[label_type][1].classes_,
-                        k=len(all_pred_probas[label_type][i].tolist()))
-            #endfor
-            if pred_mode == JOINT_EVERYTHING:
-                predictions[i] = self.__multiclass_predict_joint_everything(\
-                        all_labels, top_k_labels, use_exclusion=use_exclusion)
-            elif pred_mode == JOINT_CHANNEL_FUNCS:
-                predictions[i] = self.__multiclass_predict_joint_channel_funcs(\
-                        all_labels, top_k_labels, use_exclusion=use_exclusion)
-            elif pred_mode == INDEPENDENT:
-                predictions[i] = self.__multiclass_predict_independent(\
-                        all_labels, top_k_labels, use_exclusion=use_exclusion)
-        #endfor i
-        return predictions
-
-
-    def __multiclass_get_top_k_labels(self, pred_probas, labels, k):
+    def __get_top_k_labels(self, pred_probas, labels, k):
         max_k_inds = index_max_k(pred_probas,k)
         max_labels = {}
         for i in max_k_inds:
@@ -148,7 +250,7 @@ class Experimenter:
         return max_labels
 
 
-    def __multiclass_get_exclusion_proba(self, all_labels, label_type, inclusive_label):
+    def __get_exclusion_proba(self, all_labels, label_type, inclusive_label):
         proba = 1.0
         for label in all_labels[label_type]:
             if label == inclusive_label:
@@ -157,7 +259,7 @@ class Experimenter:
         return proba
 
 
-    def __multiclass_predict_joint_everything(self, all_labels, top_k_labels, use_exclusion=False):
+    def __predict_joint_everything(self, all_labels, top_k_labels, use_exclusion=False):
         prediction = defaultdict(str)
         channel_func_priors = self.dm.get_channel_func_priors()
         trigger_action_priors = self.dm.get_trigger_action_priors()
@@ -175,10 +277,10 @@ class Experimenter:
                         pred_proba *= channel_func_priors[a_channel][a_func]
                         pred_proba *= trigger_action_priors[t_channel][a_channel]
                         if use_exclusion is True:
-                            pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
-                            pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
-                            pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
-                            pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
                         if pred_proba > max_pred_proba:
                             prediction[TRIGGER_CHANNEL] = t_channel
                             prediction[TRIGGER_FUNC] = t_func
@@ -192,7 +294,7 @@ class Experimenter:
         return prediction
 
 
-    def __multiclass_predict_joint_channel_funcs(self, all_labels, top_k_labels, use_exclusion=False):
+    def __predict_joint_channel_funcs(self, all_labels, top_k_labels, use_exclusion=False):
         prediction = defaultdict(str)
         channel_func_priors = self.dm.get_channel_func_priors()
         max_pred_proba = 0.0
@@ -203,8 +305,8 @@ class Experimenter:
                 pred_proba *= top_k_labels[TRIGGER_FUNC][t_func]
                 pred_proba *= channel_func_priors[t_channel][t_func]
                 if use_exclusion is True:
-                    pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
-                    pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
                 if pred_proba > max_pred_proba:
                     prediction[TRIGGER_CHANNEL] = t_channel
                     prediction[TRIGGER_FUNC] = t_func
@@ -218,8 +320,8 @@ class Experimenter:
                 pred_proba *= top_k_labels[ACTION_FUNC][a_func]
                 pred_proba *= channel_func_priors[a_channel][a_func]
                 if use_exclusion is True:
-                    pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
-                    pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
                 if pred_proba > max_pred_proba:
                     prediction[ACTION_CHANNEL] = a_channel
                     prediction[ACTION_FUNC] = a_func
@@ -229,14 +331,14 @@ class Experimenter:
         return prediction
 
 
-    def __multiclass_predict_independent(self, all_labels, top_k_labels, use_exclusion=False):
+    def __predict_independent(self, all_labels, top_k_labels, use_exclusion=False):
         prediction = defaultdict(str)
         max_pred_proba = 0.0
         for t_channel in top_k_labels[TRIGGER_CHANNEL].keys():
             pred_proba = 1.0
             pred_proba *= top_k_labels[TRIGGER_CHANNEL][t_channel]
             if use_exclusion is True:
-                pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
+                pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
             if pred_proba > max_pred_proba:
                 prediction[TRIGGER_CHANNEL] = t_channel
             #endif
@@ -245,7 +347,7 @@ class Experimenter:
             pred_proba = 1.0
             pred_proba *= top_k_labels[TRIGGER_FUNC][t_func]
             if use_exclusion is True:
-                pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
+                pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
             if pred_proba > max_pred_proba:
                 prediction[TRIGGER_FUNC] = t_func
             #endif
@@ -254,7 +356,7 @@ class Experimenter:
             pred_proba = 1.0
             pred_proba *= top_k_labels[ACTION_CHANNEL][a_channel]
             if use_exclusion is True:
-                pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
+                pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
             if pred_proba > max_pred_proba:
                 prediction[ACTION_CHANNEL] = a_channel
             #endif
@@ -263,7 +365,7 @@ class Experimenter:
             pred_proba = 1.0
             pred_proba *= top_k_labels[ACTION_FUNC][a_func]
             if use_exclusion is True:
-                pred_proba *= self.__multiclass_get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
+                pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
             if pred_proba > max_pred_proba:
                 prediction[ACTION_FUNC] = a_func
             #endif
