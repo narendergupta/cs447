@@ -95,6 +95,23 @@ class Experimenter:
         return
 
 
+    def perform_hierarchical_multiclass_experiment(self, need_to_extract_features=False,
+            prediction_file='../data/multiclass_predictions.csv',
+            result_file='../data/multiclass_results.txt'):
+        if need_to_extract_features is True:
+            self.logger.info('Extracting Bag of Words features for hierarchical multiclass classification')
+            self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
+            self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
+        train_data = self.dm.get_training_data()
+        test_data = self.dm.get_testing_data()
+        (channel_classifiers, func_classifiers) = self.hierarchical_multiclass_train(train_data)
+        predictions = self.hierarchical_multiclass_predict(
+                channel_classifiers, func_classifiers, test_data)
+        self.save_predictions(predictions, output_file=prediction_file)
+        self.evaluate(test_data, predictions, output_file=result_file)
+        return
+
+
     def multiclass_train(self, train_data):
         self.logger.info('Training using multiclass classifiers')
         classifiers = defaultdict(lambda : defaultdict(None))
@@ -205,6 +222,91 @@ class Experimenter:
             elif pred_mode == INDEPENDENT:
                 predictions[i] = self.__predict_independent(\
                         all_labels, top_k_labels, use_exclusion=use_exclusion)
+        #endfor i
+        return predictions
+
+
+    def hierarchical_multiclass_train(self, train_data):
+        self.logger.info('Training using hierarchical multiclass classifiers')
+        channel_label_types = {TRIGGER:TRIGGER_CHANNEL, ACTION:ACTION_CHANNEL}
+        func_label_types = {TRIGGER:TRIGGER_FUNC, ACTION:ACTION_FUNC}
+        channel_classifiers = defaultdict(None)
+        func_classifiers = defaultdict(lambda : defaultdict(None))
+        # Get Channel Classifiers
+        for label_type in channel_label_types:
+            channel_classifiers[label_type] = \
+                    self.__multiclass_get_classifier(
+                            train_data,
+                            channel_label_types[label_type])
+        # Get Func  Classifiers
+        channel_wise_train_data = {TRIGGER:defaultdict(list), ACTION:defaultdict(list)}
+        for recipe in train_data:
+            channel_wise_train_data[TRIGGER][recipe.trigger_channel].append(recipe)
+            channel_wise_train_data[ACTION][recipe.action_channel].append(recipe)
+        for func_type in func_label_types:
+            for channel in channel_wise_train_data[func_type]:
+                funcs = [recipe[func_label_types[func_type]] for recipe in channel_wise_train_data[func_type][channel]]
+                funcs = unique(funcs)
+                if len(funcs) <= 1:
+                    continue
+                func_classifiers[func_type][channel] = \
+                        self.__multiclass_get_classifier(
+                                channel_wise_train_data[func_type][channel],
+                                func_label_types[func_type])
+            #endfor channel
+        #endfor channel_type
+        return (channel_classifiers, func_classifiers)
+
+
+    def hierarchical_multiclass_predict(self, channel_classifiers, func_classifiers, 
+            test_data, top_k=5):
+        predictions = [defaultdict(str) for i in range(len(test_data))]
+        self.logger.info('Predicting using hierarchical multiclass classifiers')
+        test_X = []
+        for recipe in test_data:
+            test_X.append(recipe.feats)
+        channel_pred_probas = {}
+        func_pred_probas = defaultdict(dict)
+        channel_label_types = {TRIGGER:TRIGGER_CHANNEL, ACTION:ACTION_CHANNEL}
+        func_label_types = {TRIGGER:TRIGGER_FUNC, ACTION:ACTION_FUNC}
+        for channel_type in channel_classifiers:
+            (clf, le) = channel_classifiers[channel_type]
+            test_Y_proba = clf.predict_proba(test_X)
+            channel_pred_probas[channel_type] = test_Y_proba
+        for func_type in func_classifiers:
+            clf_map = func_classifiers[func_type]
+            for channel in clf_map:
+                (clf, le) = clf_map[channel]
+                func_pred_probas[func_type][channel] = clf.predict_proba(test_X)
+            #endfor channel
+        for i in range(len(test_data)):
+            max_pred_proba = 0.0
+            for infer_type in channel_label_types:
+                pred_proba = 1.0
+                top_k_channels = self.__get_top_k_labels(
+                        channel_pred_probas[infer_type][i].tolist(),
+                        channel_classifiers[infer_type][1].classes_,
+                        k=top_k)
+                for channel in top_k_channels:
+                    pred_proba *= top_k_channels[channel]
+                    if channel not in func_pred_probas[infer_type]:
+                        continue
+                    top_k_funcs = self.__get_top_k_labels(
+                            func_pred_probas[infer_type][channel][i].tolist(),
+                            func_classifiers[infer_type][channel][1].classes_,
+                            k=top_k)
+                    for func in top_k_funcs:
+                        pred_proba *= top_k_funcs[func]
+                        if pred_proba > max_pred_proba:
+                            max_pred_proba = pred_proba
+                            channel_val = channel_label_types[infer_type]
+                            func_val = func_label_types[infer_type]
+                            predictions[i][channel_val] = channel
+                            predictions[i][func_val] = func
+                        #endif
+                    #endfor func
+                #endfor channel
+            #end infer_type
         #endfor i
         return predictions
 
