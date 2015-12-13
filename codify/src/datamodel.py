@@ -166,11 +166,10 @@ class DataModel:
         #end try except
 
 
-    def get_featured_recipes(self, tokenizer=None, \
-            analyzer='char', ngram_range=(1,3), \
+    def extract_bow_features(self, tokenizer=None, \
+            analyzer='char', ngram_range=(1,1), \
             stop_words='english', use_idf=False, \
             max_features=1000):
-        train_feats, test_feats = [], []
         transformer = TfidfVectorizer(tokenizer=tokenizer,\
                 analyzer=analyzer, ngram_range=ngram_range, \
                 stop_words=stop_words, use_idf=use_idf, \
@@ -178,16 +177,13 @@ class DataModel:
         transformer.fit(self.__get_training_titles())
         training_mat = transformer.transform(self.__get_training_titles())
         testing_mat = transformer.transform(self.__get_testing_titles())
+        # Calling below 2 functions ensures that self.train_data and self.test_data are ready
         train_data = self.get_training_data()
         test_data = self.get_testing_data()
         for i in range(len(train_data)):
-            recipe = train_data[i]
-            recipe.feats = training_mat.getrow(i).toarray().flatten()
-            train_feats.append(recipe)
+            self.train_data[i].feats.extend(training_mat.getrow(i).toarray().flatten().tolist())
         for i in range(len(test_data)):
-            recipe = test_data[i]
-            recipe.feats = testing_mat.getrow(i).toarray().flatten()
-            test_feats.append(recipe)
-        return (train_feats, test_feats)
+            self.test_data[i].feats.extend(testing_mat.getrow(i).toarray().flatten().tolist())
+        return
 
 

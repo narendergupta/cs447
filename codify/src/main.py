@@ -18,7 +18,8 @@ def main(args):
     exp.perform_multiclass_experiment()
     t2 = time.time()
     timeused = t2 - t1
-    logging.getLogger(LOGGER).info('Time used in experiment: %f seconds' % timeused)
+    logging.getLogger(LOGGER).info('Time used in experiment (hour:min:sec): %d:%d:%d' % \
+            (timeused/3600, timeused/60, timeused%60))
     return exp
 
 

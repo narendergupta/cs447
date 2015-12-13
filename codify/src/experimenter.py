@@ -60,7 +60,10 @@ class Experimenter:
     def perform_multiclass_experiment(self):
         self.multiclass = True
         test_data = self.dm.get_testing_data()
-        (train_data, test_data) = self.dm.get_featured_recipes()
+        self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
+        self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
+        train_data = self.dm.get_training_data()
+        test_data = self.dm.get_testing_data()
         classifiers = self.train(train_data)
         predictions = self.predict_joint_everything(classifiers, test_data)
         self.save_predictions(predictions, output_file='../data/predictions_multiclass.csv')
