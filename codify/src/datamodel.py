@@ -168,7 +168,7 @@ class DataModel:
 
     def get_featured_recipes(self, tokenizer=None, \
             analyzer='char', ngram_range=(1,3), \
-            stop_words='enlish', use_idf=False, \
+            stop_words='english', use_idf=False, \
             max_features=1000):
         train_feats, test_feats = [], []
         transformer = TfidfVectorizer(tokenizer=tokenizer,\
