@@ -95,7 +95,8 @@ class Experimenter:
         return
 
 
-    def perform_hierarchical_multiclass_experiment(self, need_to_extract_features=False,
+    def perform_hierarchical_multiclass_experiment(self, use_exclusion=True,
+            need_to_extract_features=False,
             prediction_file='../data/multiclass_predictions.csv',
             result_file='../data/multiclass_results.txt'):
         if need_to_extract_features is True:
@@ -106,7 +107,7 @@ class Experimenter:
         test_data = self.dm.get_testing_data()
         (channel_classifiers, func_classifiers) = self.hierarchical_multiclass_train(train_data)
         predictions = self.hierarchical_multiclass_predict(
-                channel_classifiers, func_classifiers, test_data)
+                channel_classifiers, func_classifiers, test_data, use_exclusion=use_exclusion)
         self.save_predictions(predictions, output_file=prediction_file)
         self.evaluate(test_data, predictions, output_file=result_file)
         return
@@ -259,7 +260,7 @@ class Experimenter:
 
 
     def hierarchical_multiclass_predict(self, channel_classifiers, func_classifiers, 
-            test_data, top_k=5):
+            test_data, top_k=5, use_exclusion=False):
         predictions = [defaultdict(str) for i in range(len(test_data))]
         self.logger.info('Predicting using hierarchical multiclass classifiers')
         test_X = []
@@ -286,17 +287,29 @@ class Experimenter:
                         channel_pred_probas[infer_type][i].tolist(),
                         channel_classifiers[infer_type][1].classes_,
                         k=top_k)
+                all_channels = self.__get_top_k_labels(
+                        channel_pred_probas[infer_type][i].tolist(),
+                        channel_classifiers[infer_type][1].classes_,
+                        k=len(channel_classifiers[infer_type][1].classes_))
                 for channel in top_k_channels:
-                    pred_proba = top_k_channels[channel]
                     if channel not in func_pred_probas[infer_type]:
                         continue
                     top_k_funcs = self.__get_top_k_labels(
                             func_pred_probas[infer_type][channel][i].tolist(),
                             func_classifiers[infer_type][channel][1].classes_,
                             k=top_k)
+                    all_funcs = self.__get_top_k_labels(
+                            func_pred_probas[infer_type][channel][i].tolist(),
+                            func_classifiers[infer_type][channel][1].classes_,
+                            k=len(func_classifiers[infer_type][channel][1].classes_))
                     for func in top_k_funcs:
-                        if pred_proba * top_k_funcs[func] > max_pred_proba:
-                            max_pred_proba = pred_proba * top_k_funcs[func]
+                        pred_proba = top_k_channels[channel]
+                        if use_exclusion is True:
+                            pred_proba *= self.__get_exclusion_proba(all_channels, channel)
+                            pred_proba *= self.__get_exclusion_proba(all_funcs, func)
+                        pred_proba *= top_k_funcs[func]
+                        if pred_proba > max_pred_proba:
+                            max_pred_proba = pred_proba
                             channel_val = channel_label_types[infer_type]
                             func_val = func_label_types[infer_type]
                             predictions[i][channel_val] = channel
@@ -350,12 +363,18 @@ class Experimenter:
         return max_labels
 
 
-    def __get_exclusion_proba(self, all_labels, label_type, inclusive_label):
+    def __get_exclusion_proba(self, all_labels, inclusive_label, label_type=None):
         proba = 1.0
-        for label in all_labels[label_type]:
-            if label == inclusive_label:
-                continue
-            proba *= (1 - all_labels[label_type][label])
+        if label_type is not None:
+            for label in all_labels[label_type]:
+                if label == inclusive_label:
+                    continue
+                proba *= (1 - all_labels[label_type][label])
+        else:
+            for label in all_labels:
+                if label == inclusive_label:
+                    continue
+                proba *= (1 - all_labels[label])
         return proba
 
 
@@ -377,10 +396,10 @@ class Experimenter:
                         pred_proba *= channel_func_priors[a_channel][a_func]
                         pred_proba *= trigger_action_priors[t_channel][a_channel]
                         if use_exclusion is True:
-                            pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
-                            pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
-                            pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
-                            pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, t_channel, TRIGGER_CHANNEL)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, t_func, TRIGGER_FUNC)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, a_channel, ACTION_CHANNEL)
+                            pred_proba *= self.__get_exclusion_proba(all_labels, a_func, ACTION_FUNC)
                         if pred_proba > max_pred_proba:
                             prediction[TRIGGER_CHANNEL] = t_channel
                             prediction[TRIGGER_FUNC] = t_func
@@ -405,8 +424,8 @@ class Experimenter:
                 pred_proba *= top_k_labels[TRIGGER_FUNC][t_func]
                 pred_proba *= channel_func_priors[t_channel][t_func]
                 if use_exclusion is True:
-                    pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
-                    pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, t_channel, TRIGGER_CHANNEL)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, t_func, TRIGGER_FUNC)
                 if pred_proba > max_pred_proba:
                     prediction[TRIGGER_CHANNEL] = t_channel
                     prediction[TRIGGER_FUNC] = t_func
@@ -420,8 +439,8 @@ class Experimenter:
                 pred_proba *= top_k_labels[ACTION_FUNC][a_func]
                 pred_proba *= channel_func_priors[a_channel][a_func]
                 if use_exclusion is True:
-                    pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
-                    pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, a_channel, ACTION_CHANNEL)
+                    pred_proba *= self.__get_exclusion_proba(all_labels, a_func, ACTION_FUNC)
                 if pred_proba > max_pred_proba:
                     prediction[ACTION_CHANNEL] = a_channel
                     prediction[ACTION_FUNC] = a_func
@@ -438,7 +457,7 @@ class Experimenter:
             pred_proba = 1.0
             pred_proba *= top_k_labels[TRIGGER_CHANNEL][t_channel]
             if use_exclusion is True:
-                pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_CHANNEL, t_channel)
+                pred_proba *= self.__get_exclusion_proba(all_labels, t_channel, TRIGGER_CHANNEL)
             if pred_proba > max_pred_proba:
                 prediction[TRIGGER_CHANNEL] = t_channel
             #endif
@@ -447,7 +466,7 @@ class Experimenter:
             pred_proba = 1.0
             pred_proba *= top_k_labels[TRIGGER_FUNC][t_func]
             if use_exclusion is True:
-                pred_proba *= self.__get_exclusion_proba(all_labels, TRIGGER_FUNC, t_func)
+                pred_proba *= self.__get_exclusion_proba(all_labels, t_func, TRIGGER_FUNC)
             if pred_proba > max_pred_proba:
                 prediction[TRIGGER_FUNC] = t_func
             #endif
@@ -456,7 +475,7 @@ class Experimenter:
             pred_proba = 1.0
             pred_proba *= top_k_labels[ACTION_CHANNEL][a_channel]
             if use_exclusion is True:
-                pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_CHANNEL, a_channel)
+                pred_proba *= self.__get_exclusion_proba(all_labels, a_channel, ACTION_CHANNEL)
             if pred_proba > max_pred_proba:
                 prediction[ACTION_CHANNEL] = a_channel
             #endif
@@ -465,7 +484,7 @@ class Experimenter:
             pred_proba = 1.0
             pred_proba *= top_k_labels[ACTION_FUNC][a_func]
             if use_exclusion is True:
-                pred_proba *= self.__get_exclusion_proba(all_labels, ACTION_FUNC, a_func)
+                pred_proba *= self.__get_exclusion_proba(all_labels, a_func, ACTION_FUNC)
             if pred_proba > max_pred_proba:
                 prediction[ACTION_FUNC] = a_func
             #endif
