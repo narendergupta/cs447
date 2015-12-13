@@ -280,15 +280,14 @@ class Experimenter:
                 func_pred_probas[func_type][channel] = clf.predict_proba(test_X)
             #endfor channel
         for i in range(len(test_data)):
-            max_pred_proba = 0.0
             for infer_type in channel_label_types:
-                pred_proba = 1.0
+                max_pred_proba = 0.0
                 top_k_channels = self.__get_top_k_labels(
                         channel_pred_probas[infer_type][i].tolist(),
                         channel_classifiers[infer_type][1].classes_,
                         k=top_k)
                 for channel in top_k_channels:
-                    pred_proba *= top_k_channels[channel]
+                    pred_proba = top_k_channels[channel]
                     if channel not in func_pred_probas[infer_type]:
                         continue
                     top_k_funcs = self.__get_top_k_labels(
