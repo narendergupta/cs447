@@ -61,13 +61,15 @@ class Experimenter:
             use_exclusion=True,
             need_to_extract_features=False,
             prediction_file='../data/binary_predictions.csv',
-            result_file='../data/binary_results.txt'):
+            result_file='../data/binary_results.txt',
+            english_only=True):
+        train_data = self.dm.get_training_data(english_only=english_only)
+        test_data = self.dm.get_testing_data(english_only=english_only)
+        self.logger.info('Data Size = Training:Testing::%d:%d' % (len(train_data), len(test_data)))
         if need_to_extract_features is True:
             self.logger.info('Extracting Bag of Words features for multiclass classification')
             self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
             self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
-        train_data = self.dm.get_training_data()
-        test_data = self.dm.get_testing_data()
         classifiers = self.multiclass_train(train_data)
         predictions = self.multiclass_predict(classifiers, test_data,
                 pred_mode=pred_mode, top_k=5, use_exclusion=use_exclusion)
@@ -80,13 +82,15 @@ class Experimenter:
             use_exclusion=True,
             need_to_extract_features=False,
             prediction_file='../data/multiclass_predictions.csv',
-            result_file='../data/multiclass_results.txt'):
+            result_file='../data/multiclass_results.txt',
+            english_only=True):
+        train_data = self.dm.get_training_data(english_only=english_only)
+        test_data = self.dm.get_testing_data(english_only=english_only)
+        self.logger.info('Data Size = Training:Testing::%d:%d' % (len(train_data), len(test_data)))
         if need_to_extract_features is True:
             self.logger.info('Extracting Bag of Words features for binary classification')
             self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
             self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
-        train_data = self.dm.get_training_data()
-        test_data = self.dm.get_testing_data()
         classifiers = self.binary_train(train_data)
         predictions = self.binary_predict(classifiers, test_data,
                 pred_mode=JOINT_EVERYTHING, top_k=5, use_exclusion=use_exclusion)
@@ -98,13 +102,15 @@ class Experimenter:
     def perform_hierarchical_multiclass_experiment(self, use_exclusion=True,
             need_to_extract_features=False,
             prediction_file='../data/multiclass_predictions.csv',
-            result_file='../data/multiclass_results.txt'):
+            result_file='../data/multiclass_results.txt',
+            english_only=True):
+        train_data = self.dm.get_training_data(english_only=english_only)
+        test_data = self.dm.get_testing_data(english_only=english_only)
+        self.logger.info('Data Size = Training:Testing::%d:%d' % (len(train_data), len(test_data)))
         if need_to_extract_features is True:
             self.logger.info('Extracting Bag of Words features for hierarchical multiclass classification')
             #self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
             self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
-        train_data = self.dm.get_training_data()
-        test_data = self.dm.get_testing_data()
         (channel_classifiers, func_classifiers) = self.hierarchical_multiclass_train(train_data)
         predictions = self.hierarchical_multiclass_predict(
                 channel_classifiers, func_classifiers, test_data, use_exclusion=use_exclusion)

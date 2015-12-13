@@ -2,10 +2,12 @@ import logging
 from collections import defaultdict
 from codify.config.strings import *
 from codify.config.settings import *
+from gen_utils import *
 from recipe import Recipe
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 import csv
+from string import ascii_lowercase
 
 
 class DataModel:
@@ -58,7 +60,16 @@ class DataModel:
         return None
 
 
-    def get_training_data(self):
+    def __is_non_english_str(self, string):
+        for s in lowercase(string):
+            if s.strip() in ascii_lowercase or s == '':
+                continue
+            else:
+                return True
+        return False
+
+
+    def get_training_data(self, english_only=True, min_len=3):
         try:
             return self.train_data
         except AttributeError:
@@ -66,7 +77,12 @@ class DataModel:
                 self.train_data = []
                 for recipe in self.data:
                     if recipe.url in self.train_urls:
-                        self.train_data.append(recipe)
+                        if len(recipe.title) < min_len:
+                            continue
+                        if english_only and self.__is_non_english_str(recipe.title):
+                            continue
+                        else:
+                            self.train_data.append(recipe)
                 #endfor
                 return self.train_data
             except AttributeError:
@@ -76,7 +92,7 @@ class DataModel:
         #end try except
 
 
-    def get_testing_data(self):
+    def get_testing_data(self, english_only=True, min_len=3):
         try:
             return self.test_data
         except AttributeError:
@@ -84,7 +100,12 @@ class DataModel:
                 self.test_data = []
                 for recipe in self.data:
                     if recipe.url in self.test_urls:
-                        self.test_data.append(recipe)
+                        if len(recipe.title) < min_len:
+                            continue
+                        if english_only and self.__is_non_english_str(recipe.title):
+                            continue
+                        else:
+                            self.test_data.append(recipe)
                 #endfor
                 return self.test_data
             except AttributeError:
