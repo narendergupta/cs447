@@ -100,7 +100,7 @@ class Experimenter:
             result_file='../data/multiclass_results.txt'):
         if need_to_extract_features is True:
             self.logger.info('Extracting Bag of Words features for hierarchical multiclass classification')
-            self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
+            #self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
             self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
         train_data = self.dm.get_training_data()
         test_data = self.dm.get_testing_data()
@@ -254,7 +254,7 @@ class Experimenter:
                                 channel_wise_train_data[func_type][channel],
                                 func_label_types[func_type])
             #endfor channel
-        #endfor channel_type
+        #endfor func_type
         return (channel_classifiers, func_classifiers)
 
 
@@ -296,9 +296,8 @@ class Experimenter:
                             func_classifiers[infer_type][channel][1].classes_,
                             k=top_k)
                     for func in top_k_funcs:
-                        pred_proba *= top_k_funcs[func]
-                        if pred_proba > max_pred_proba:
-                            max_pred_proba = pred_proba
+                        if pred_proba * top_k_funcs[func] > max_pred_proba:
+                            max_pred_proba = pred_proba * top_k_funcs[func]
                             channel_val = channel_label_types[infer_type]
                             func_val = func_label_types[infer_type]
                             predictions[i][channel_val] = channel
