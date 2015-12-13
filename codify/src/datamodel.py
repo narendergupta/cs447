@@ -100,9 +100,9 @@ class DataModel:
                 self.test_data = []
                 for recipe in self.data:
                     if recipe.url in self.test_urls:
-                        if len(recipe.title.split()) < min_len:
-                            continue
                         if english_only and self.__is_non_english_str(recipe.title):
+                            continue
+                        if len(recipe.title.split()) < min_len:
                             continue
                         else:
                             self.test_data.append(recipe)

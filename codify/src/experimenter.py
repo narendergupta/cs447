@@ -112,7 +112,7 @@ class Experimenter:
             self.dm.extract_bow_features(analyzer='char', ngram_range=(3,3), max_features=2000)
             self.dm.extract_bow_features(analyzer='word', ngram_range=(1,2), max_features=2000)
         (channel_classifiers, func_classifiers) = self.hierarchical_multiclass_train(train_data)
-        predictions = self.hierarchical_multiclass_predict(
+        predictions = self.hierarchical_multiclass_predict_exact(
                 channel_classifiers, func_classifiers, test_data, use_exclusion=use_exclusion)
         self.save_predictions(predictions, output_file=prediction_file)
         self.evaluate(test_data, predictions, output_file=result_file)
@@ -326,6 +326,67 @@ class Experimenter:
             #end infer_type
         #endfor i
         return predictions
+
+
+    def hierarchical_multiclass_predict_exact(self,
+            channel_classifiers, func_classifiers, 
+            test_data, top_k=5, use_exclusion=False):
+        predictions = [defaultdict(str) for i in range(len(test_data))]
+        self.logger.info('Predicting using hierarchical multiclass classifiers')
+        test_X = []
+        for recipe in test_data:
+            test_X.append(recipe.feats)
+        channel_pred_probas = {}
+        func_pred_probas = defaultdict(dict)
+        channel_label_types = {TRIGGER:TRIGGER_CHANNEL, ACTION:ACTION_CHANNEL}
+        func_label_types = {TRIGGER:TRIGGER_FUNC, ACTION:ACTION_FUNC}
+        for channel_type in channel_classifiers:
+            (clf, le) = channel_classifiers[channel_type]
+            test_Y_proba = clf.predict_proba(test_X)
+            channel_pred_probas[channel_type] = test_Y_proba
+        for func_type in func_classifiers:
+            clf_map = func_classifiers[func_type]
+            for channel in clf_map:
+                (clf, le) = clf_map[channel]
+                func_pred_probas[func_type][channel] = clf.predict_proba(test_X)
+            #endfor channel
+        for i in range(len(test_data)):
+            for infer_type in channel_label_types:
+                max_pred_proba = 0.0
+                all_channels = self.__get_top_k_labels(
+                        channel_pred_probas[infer_type][i].tolist(),
+                        channel_classifiers[infer_type][1].classes_,
+                        k=len(channel_classifiers[infer_type][1].classes_))
+                for channel in all_channels:
+                    if channel not in func_pred_probas[infer_type]:
+                        continue
+                    top_func = self.__get_top_k_labels(
+                            func_pred_probas[infer_type][channel][i].tolist(),
+                            func_classifiers[infer_type][channel][1].classes_,
+                            k=1)
+                    all_funcs = self.__get_top_k_labels(
+                            func_pred_probas[infer_type][channel][i].tolist(),
+                            func_classifiers[infer_type][channel][1].classes_,
+                            k=len(func_classifiers[infer_type][channel][1].classes_))
+                    for func in top_func:
+                        pred_proba = all_channels[channel]
+                        if use_exclusion is True:
+                            pred_proba *= self.__get_exclusion_proba(all_channels, channel)
+                            pred_proba *= self.__get_exclusion_proba(all_funcs, func)
+                        pred_proba *= top_func[func]
+                        if pred_proba > max_pred_proba:
+                            max_pred_proba = pred_proba
+                            channel_val = channel_label_types[infer_type]
+                            func_val = func_label_types[infer_type]
+                            predictions[i][channel_val] = channel
+                            predictions[i][func_val] = func
+                        #endif
+                    #endfor func
+                #endfor channel
+            #end infer_type
+        #endfor i
+        return predictions
+
 
 
     def __binary_get_classifiers(self, recipes, recipe_label_type):
