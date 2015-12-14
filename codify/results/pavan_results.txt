@@ -1,0 +1,39 @@
+Binary Independent Exact Inference:
+
+Word Unigrams Feats:
+
+Channel Accuracy: 0.34018
+Function Accuracy: 0.17230
+
+Word Unigrams, Bigrams, Character trigrams Feats:
+
+Channel Accuracy: 0.34134
+Function Accuracy: 0.19744
+
+
+
+Binary Independent Exact Inference with exclusion:
+
+Word Unigrams Feats:
+
+Channel Accuracy: 0.34932
+Function Accuracy: 0.17884
+
+Word Unigrams, Bigrams, Character trigrams Feats:
+
+Channel Accuracy: 0.38423
+Function Accuracy: 0.23856
+
+
+
+Heirarchical Multiclass Exact Inference:
+
+Word Unigrams Feats:
+
+Channel Accuracy: 0.64823
+Function Accuracy: 0.54740
+
+Word Unigrams, Bigrams, Character trigrams Feats:
+
+Channel Accuracy: 0.71445
+Function Accuracy: 0.60686
