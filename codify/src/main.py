@@ -10,13 +10,33 @@ import time
 
 def main(args):
     dm = DataModel(args.data_file)
-    dm.read_data(to_read_count=2000)
+    dm.read_data(to_read_count=10000)
     exp = Experimenter(dm, \
             process_datamodel=True, \
             serialise=False)
     t1 = time.time()
-    exp.perform_hierarchical_multiclass_experiment(
-            need_to_extract_features=True, english_only=False)
+    exp.perform_binary_experiment(
+            pred_mode=JOINT_EVERYTHING,
+            use_exclusion=False,
+            need_to_extract_features=True,
+            prediction_file='../results/predictions_binary_joint_everything_wordunibigram_chartrigrami_10000.csv',
+            result_file='../results/results_binary_joint_everything_wordunibigram_chartrigrami_10000.txt',
+            english_only=False)
+    exp.perform_binary_experiment(
+            pred_mode=JOINT_CHANNEL_FUNCS,
+            use_exclusion=False,
+            need_to_extract_features=False,
+            prediction_file='../results/predictions_binary_joint_channelfuncs_wordunibigram_chartrigrami_10000.csv',
+            result_file='../results/results_binary_joint_channelfuncs_wordunibigram_chartrigrami_10000.txt',
+            english_only=False)
+    exp.perform_binary_experiment(
+            pred_mode=INDEPENDENT,
+            use_exclusion=False,
+            need_to_extract_features=False,
+            prediction_file='../results/predictions_binary_independent_wordunibigram_chartrigrami_10000.csv',
+            result_file='../results/results_binary_independent_wordunibigram_chartrigrami_10000.txt',
+            english_only=False)
+
     t2 = time.time()
     timeused = t2 - t1
     logging.getLogger(LOGGER).info('Time used in experiment (hour:min:sec): %d:%d:%d' % \
