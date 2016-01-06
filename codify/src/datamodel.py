@@ -78,7 +78,7 @@ class DataModel:
         return False
 
 
-    def get_training_data():
+    def get_training_data(self):
         try:
             return self.train_data
         except AttributeError:
