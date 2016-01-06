@@ -19,6 +19,10 @@ class Recipe:
         self.feats = []       # Features to be extracted later
         self.trigger_channel, self.trigger_func, self.trigger_params = '', '', ''
         self.action_channel, self.action_func, self.action_params = '', '', ''
+        self.is_english = None
+        self.is_legible = None
+        self.trigger_turk_agreements = None
+        self.action_turk_agreements = None
         self.parse_code()
 
 

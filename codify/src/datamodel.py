@@ -14,10 +14,12 @@ class DataModel:
     """Class for reading and managing raw data"""
     def __init__(self, data_file='../data/recipe_parse.tsv', delimiter='\t', \
             train_urls_file = '../data/train.urls', \
-            test_urls_file = '../data/test.urls'):
+            test_urls_file = '../data/test.urls', \
+            turk_file = '../data/turk_public.tsv'):
         self.data_file = data_file
         self.train_urls_file = train_urls_file
         self.test_urls_file = test_urls_file
+        self.turk_file = turk_file
         self.data_file_delimiter = delimiter
         self.logger = logging.getLogger(LOGGER)
         self.data = None
@@ -54,6 +56,13 @@ class DataModel:
             self.train_urls = train_f.readlines()
         with open(self.test_urls_file, 'r') as test_f:
             self.test_urls = test_f.readlines()
+        self.turk_data = {}
+        with open(self.turk_file,'r') as turk_f:
+            turk_reader = csv.DictReader(turk_f, delimiter=self.data_file_delimiter)
+            for row in turk_reader:
+                if row[URL] not in self.turk_data:
+                    self.turk_data[row[URL]] = []
+                self.turk_data[row[URL]].append(row)
         # Change lists into dict for quick access
         self.train_urls = dict((url.strip(),1) for url in self.train_urls)
         self.test_urls = dict((url.strip(),1) for url in self.test_urls)
@@ -69,7 +78,7 @@ class DataModel:
         return False
 
 
-    def get_training_data(self, english_only=True, min_len=3):
+    def get_training_data():
         try:
             return self.train_data
         except AttributeError:
@@ -77,12 +86,7 @@ class DataModel:
                 self.train_data = []
                 for recipe in self.data:
                     if recipe.url in self.train_urls:
-                        if english_only and self.__is_non_english_str(recipe.title):
-                            continue
-                        if len(recipe.title.split()) < min_len:
-                            continue
-                        else:
-                            self.train_data.append(recipe)
+                        self.train_data.append(recipe)
                 #endfor
                 return self.train_data
             except AttributeError:
@@ -92,7 +96,8 @@ class DataModel:
         #end try except
 
 
-    def get_testing_data(self, english_only=True, min_len=3):
+    def get_testing_data(self, english_only=False, legible_only=False, \
+            min_turk_agreement=None):
         try:
             return self.test_data
         except AttributeError:
@@ -100,12 +105,35 @@ class DataModel:
                 self.test_data = []
                 for recipe in self.data:
                     if recipe.url in self.test_urls:
-                        if english_only and self.__is_non_english_str(recipe.title):
+                        turk_rows = self.turk_data[recipe.url]
+                        turk_trigger_map = defaultdict(float)
+                        turk_action_map = defaultdict(float)
+                        for row in turk_rows:
+                            turk_trigger_map[row[TRIGGER_CHANNEL]] += 1.0
+                            turk_action_map[row[ACTION_CHANNEL]] += 1.0
+                            recipe.trigger_turk_agreements = max(turk_trigger_map.values())
+                            recipe.action_turk_agreements = max(turk_action_map.values())
+                            if turk_trigger_map[UNINTELLIGIBLE] >= 3 and \
+                                    turk_action_map[UNINTELLIGIBLE] >= 3:
+                                        recipe.is_legible = False
+                            else:
+                                recipe.is_legible = True
+                            if turk_trigger_map[NONENGLISH] >= 3 and \
+                                    turk_action_map[NONENGLISH] >= 3:
+                                        recipe.is_english = False
+                            else:
+                                recipe.is_english = True
+                        if english_only and recipe.is_english is False:
                             continue
-                        if len(recipe.title.split()) < min_len:
+                        if legible_only and recipe.is_legible is False:
                             continue
-                        else:
-                            self.test_data.append(recipe)
+                        if min_turk_agreement is not None:
+                            recipe_turk_agreements = min(
+                                    recipe.trigger_turk_agreements,
+                                    recipe.action_turk_agreements)
+                            if recipe_turk_agreements <= min_turk_agreement:
+                                continue
+                        self.test_data.append(recipe)
                 #endfor
                 return self.test_data
             except AttributeError:

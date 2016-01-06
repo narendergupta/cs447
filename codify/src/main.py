@@ -15,28 +15,14 @@ def main(args):
             process_datamodel=True, \
             serialise=False)
     t1 = time.time()
-    exp.perform_binary_experiment(
-            pred_mode=JOINT_EVERYTHING,
-            use_exclusion=False,
-            need_to_extract_features=True,
-            prediction_file='../results/predictions_binary_joint_everything_wordunibigram_chartrigrami_10000.csv',
-            result_file='../results/results_binary_joint_everything_wordunibigram_chartrigrami_10000.txt',
-            english_only=False)
-    exp.perform_binary_experiment(
-            pred_mode=JOINT_CHANNEL_FUNCS,
-            use_exclusion=False,
-            need_to_extract_features=False,
-            prediction_file='../results/predictions_binary_joint_channelfuncs_wordunibigram_chartrigrami_10000.csv',
-            result_file='../results/results_binary_joint_channelfuncs_wordunibigram_chartrigrami_10000.txt',
-            english_only=False)
-    exp.perform_binary_experiment(
+    exp.perform_multiclass_experiment(
             pred_mode=INDEPENDENT,
-            use_exclusion=False,
-            need_to_extract_features=False,
-            prediction_file='../results/predictions_binary_independent_wordunibigram_chartrigrami_10000.csv',
-            result_file='../results/results_binary_independent_wordunibigram_chartrigrami_10000.txt',
-            english_only=False)
-
+            use_exclusion=True,
+            need_to_extract_features=True,
+            prediction_file='../results/predictions_multiclass_independent_englishonly_legibleonly_wordunibigram_chartrigram_10000.csv',
+            result_file='../results/results_multiclass_independent_englishonly_legibleonly_wordunibigram_chartrigram_10000.txt',
+            english_only=True,
+            legible_only=True)
     t2 = time.time()
     timeused = t2 - t1
     logging.getLogger(LOGGER).info('Time used in experiment (hour:min:sec): %d:%d:%d' % \

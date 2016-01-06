@@ -62,9 +62,10 @@ class Experimenter:
             need_to_extract_features=False,
             prediction_file='../data/binary_predictions.csv',
             result_file='../data/binary_results.txt',
-            english_only=True):
-        train_data = self.dm.get_training_data(english_only=english_only)
-        test_data = self.dm.get_testing_data(english_only=english_only)
+            english_only=False,
+            legible_only=False):
+        train_data = self.dm.get_training_data()
+        test_data = self.dm.get_testing_data(english_only=english_only, legible_only=legible_only)
         self.logger.info('Data Size = Training:Testing::%d:%d' % (len(train_data), len(test_data)))
         if need_to_extract_features is True:
             self.logger.info('Extracting Bag of Words features for multiclass classification')
@@ -84,7 +85,7 @@ class Experimenter:
             prediction_file='../data/multiclass_predictions.csv',
             result_file='../data/multiclass_results.txt',
             english_only=True):
-        train_data = self.dm.get_training_data(english_only=english_only)
+        train_data = self.dm.get_training_data()
         test_data = self.dm.get_testing_data(english_only=english_only)
         self.logger.info('Data Size = Training:Testing::%d:%d' % (len(train_data), len(test_data)))
         if need_to_extract_features is True:
@@ -104,7 +105,7 @@ class Experimenter:
             prediction_file='../data/multiclass_predictions.csv',
             result_file='../data/multiclass_results.txt',
             english_only=True):
-        train_data = self.dm.get_training_data(english_only=english_only)
+        train_data = self.dm.get_training_data()
         test_data = self.dm.get_testing_data(english_only=english_only)
         self.logger.info('Data Size = Training:Testing::%d:%d' % (len(train_data), len(test_data)))
         if need_to_extract_features is True:

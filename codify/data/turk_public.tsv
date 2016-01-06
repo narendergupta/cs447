@@ -1,4 +1,4 @@
-URL	Description	Trigger channel	Trigger	Action channel	Action
+Url	Description	trigger_channel	trigger_func	action_channel	action_func
 https://ifttt.com/recipes/104-facebook-notice-to-phone	-	Facebook	Any new post by you in area	SMS	Send me an SMS
 https://ifttt.com/recipes/104-facebook-notice-to-phone	-	Facebook	You are tagged in a photo	SMS	Send me an SMS
 https://ifttt.com/recipes/104-facebook-notice-to-phone	-	Facebook Groups	Any new post	SMS	Send me an SMS
