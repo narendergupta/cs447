@@ -113,13 +113,13 @@ class DataModel:
                             turk_action_map[row[ACTION_CHANNEL]] += 1.0
                             recipe.trigger_turk_agreements = max(turk_trigger_map.values())
                             recipe.action_turk_agreements = max(turk_action_map.values())
-                            if turk_trigger_map[UNINTELLIGIBLE] >= 3 and \
-                                    turk_action_map[UNINTELLIGIBLE] >= 3:
+                            if turk_trigger_map[UNINTELLIGIBLE] >= 1 and \
+                                    turk_action_map[UNINTELLIGIBLE] >= 1:
                                         recipe.is_legible = False
                             else:
                                 recipe.is_legible = True
-                            if turk_trigger_map[NONENGLISH] >= 3 and \
-                                    turk_action_map[NONENGLISH] >= 3:
+                            if turk_trigger_map[NONENGLISH] >= 1 and \
+                                    turk_action_map[NONENGLISH] >= 1:
                                         recipe.is_english = False
                             else:
                                 recipe.is_english = True
