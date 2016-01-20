@@ -108,21 +108,28 @@ class DataModel:
                         turk_rows = self.turk_data[recipe.url]
                         turk_trigger_map = defaultdict(float)
                         turk_action_map = defaultdict(float)
+                        recipe.trigger_turk_agreements = 0
+                        recipe.action_turk_agreements = 0
                         for row in turk_rows:
                             turk_trigger_map[row[TRIGGER_CHANNEL]] += 1.0
                             turk_action_map[row[ACTION_CHANNEL]] += 1.0
-                            recipe.trigger_turk_agreements = max(turk_trigger_map.values())
-                            recipe.action_turk_agreements = max(turk_action_map.values())
-                            if turk_trigger_map[UNINTELLIGIBLE] >= 1 and \
-                                    turk_action_map[UNINTELLIGIBLE] >= 1:
-                                        recipe.is_legible = False
-                            else:
-                                recipe.is_legible = True
-                            if turk_trigger_map[NONENGLISH] >= 1 and \
-                                    turk_action_map[NONENGLISH] >= 1:
-                                        recipe.is_english = False
-                            else:
-                                recipe.is_english = True
+                            if lowercase(row[TRIGGER_CHANNEL]) == \
+                                    lowercase(recipe.trigger_channel):
+                                        recipe.trigger_turk_agreements += 1
+                            if lowercase(row[ACTION_CHANNEL]) == \
+                                    lowercase(recipe.action_channel):
+                                        recipe.action_turk_agreements += 1
+                        if turk_trigger_map[UNINTELLIGIBLE] >= 1 and \
+                                turk_action_map[UNINTELLIGIBLE] >= 1:
+                                    recipe.is_legible = False
+                        else:
+                            recipe.is_legible = True
+                        if turk_trigger_map[NONENGLISH] >= 1 and \
+                                turk_action_map[NONENGLISH] >= 1:
+                                    recipe.is_english = False
+                        else:
+                            recipe.is_english = True
+                        # Test data filters
                         if english_only and recipe.is_english is False:
                             continue
                         if legible_only and recipe.is_legible is False:
@@ -131,7 +138,7 @@ class DataModel:
                             recipe_turk_agreements = min(
                                     recipe.trigger_turk_agreements,
                                     recipe.action_turk_agreements)
-                            if recipe_turk_agreements <= min_turk_agreement:
+                            if recipe_turk_agreements < min_turk_agreement:
                                 continue
                         self.test_data.append(recipe)
                 #endfor
